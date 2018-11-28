@@ -6,7 +6,7 @@ import numpy as np
 
 filename = "/mnt/pccfs/backed_up/andrew/hearables/clean/nwords_{}.wav".format(np.random.randint(1, 333))
 
-def split(zxx):
+def get_split(zxx):
     result = np.zeros((2, *zxx.shape))
     result[0] = zxx.real
     result[1] = zxx.imag
@@ -23,11 +23,11 @@ def get_stft(filename, split=False, plot=False):
         plot_spect(f, t, zxx, filename=filename)
 
     if split:
-        zxx = split(zxx)
+        zxx = get_split(zxx)
 
     return f, t, zxx, sample_rate
 
-def get_istft(zxx, sample_rate, save=False):
+def get_istft(zxx, sample_rate, title="output", save=False):
     if len(zxx) == 3:
         real, imag = zxx[0], zxx[1]
         zxx = real + imag
@@ -38,7 +38,7 @@ def get_istft(zxx, sample_rate, save=False):
     x = x/m
 
     if save:
-        wavfile.write("outfile.wav", sample_rate, x)
+        wavfile.write("{}{}.wav".format(title, np.random.randint(0,1000000)), sample_rate, x)
 
     return t, x
 
