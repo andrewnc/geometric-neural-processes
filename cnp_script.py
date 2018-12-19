@@ -238,8 +238,6 @@ if __name__ == "__main__":
     encoder = nn.DataParallel(encoder)
     decoder = nn.DataParallel(decoder)
 
-    encoder = encoder.to(device)
-    decoder = decoder.to(device)
 
     optimizer = optim.Adam(list(encoder.parameters()) + list(decoder.parameters()))
 
