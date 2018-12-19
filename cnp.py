@@ -278,7 +278,7 @@ if __name__ == "__main__":
                     pickle.dump(optimizer, of)
             comp_time = time.time() - comp_time
 
-            progress.set_postfix(str(comp_time/data_time))
+            progress.set_postfix({"time_percentage":str(comp_time/data_time)})
             data_time = time.time()
 
                 
