@@ -250,6 +250,9 @@ if __name__ == "__main__":
             data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
             
             optimizer.zero_grad()
+
+            data = data.to(device)
+            target = target.to(device)
             
             # run the model to get r
             r = encoder(data)
@@ -281,6 +284,10 @@ if __name__ == "__main__":
         with torch.no_grad():
             for i, (data, target) in enumerate(val_loader):
                 data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
+
+
+                data = data.to(device)
+                target = target.to(device)
 
                 r = encoder(data)
                 mu, sigma = decoder(r)
