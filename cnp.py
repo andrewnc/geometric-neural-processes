@@ -19,6 +19,8 @@ import os
 import h5py
 import pathlib
 
+import time
+
 # code for audio manipulation
 import spect
 
@@ -246,7 +248,11 @@ if __name__ == "__main__":
         encoder.train()
         decoder.train()
         progress = tqdm(enumerate(train_loader))
+
+
         for batch_idx, (data, target) in progress:
+            data_time = time.time() - data_time
+            comp_time = time.time()
             data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
             
             optimizer.zero_grad()
@@ -276,6 +282,10 @@ if __name__ == "__main__":
 
                 with open("optim.pkl", "wb") as of:
                     pickle.dump(optimizer, of)
+            comp_time = time.time() - comp_time
+
+        print(comp_time/data_time)
+        data_time = time.time()
 
                 
         
