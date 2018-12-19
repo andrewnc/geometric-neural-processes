@@ -232,8 +232,8 @@ if __name__ == "__main__":
     min_context_points = num_pixels * 0.05 # always have at least 5% of all pixels
     max_context_points = num_pixels * 0.95 # always have at most 95% of all pixels
 
-    encoder = MRIEncoder()
-    decoder = MRIDecoder(m, n)
+    encoder = MRIEncoder().to(device)
+    decoder = MRIDecoder(m, n).to(device)
 
     encoder = nn.DataParallel(encoder)
     decoder = nn.DataParallel(decoder)
