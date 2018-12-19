@@ -79,31 +79,23 @@ def create_datasets(args):
 
 def create_data_loaders(args):
     dev_data, train_data = create_datasets(args)
-    display_data = [dev_data[i] for i in range(0, len(dev_data), len(dev_data) // 16)]
 
     train_loader = DataLoader(
         dataset=train_data,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=8,
+        num_workers=16,
         pin_memory=True,
         collate_fn=collate,
     )
     dev_loader = DataLoader(
         dataset=dev_data,
         batch_size=args.batch_size,
-        num_workers=8,
+        num_workers=16,
         pin_memory=True,
         collate_fn=collate,
     )
-    display_loader = DataLoader(
-        dataset=display_data,
-        batch_size=16,
-        num_workers=8,
-        pin_memory=True,
-        collate_fn=collate,
-    )
-    return train_loader, dev_loader, display_loader
+    return train_loader, dev_loader
 
 def get_log_p(data, mu, sigma):
     return -torch.log(torch.sqrt(2*math.pi*sigma**2)) - (data - mu)**2/(2*sigma**2)
@@ -218,7 +210,7 @@ if __name__ == "__main__":
     # we will want to vary these and see how the method performs
     args = ARGS("singlecoil",[0.08, 0.04],[4, 8], 320, _dir, 1, 16)
 
-    train_loader, val_loader, display_loader = create_data_loaders(args)
+    train_loader, val_loader = create_data_loaders(args)
 
     # most of these are not relevant for the mri experiment
     m,n = 320,320 #28, 28
@@ -286,8 +278,8 @@ if __name__ == "__main__":
                     pickle.dump(optimizer, of)
             comp_time = time.time() - comp_time
 
-        print(comp_time/data_time)
-        data_time = time.time()
+            progress.set_postfix(comp_time/data_time)
+            data_time = time.time()
 
                 
         
