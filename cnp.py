@@ -245,8 +245,6 @@ if __name__ == "__main__":
 
 
         for batch_idx, (data, target) in progress:
-            data_time = time.time() - data_time
-            comp_time = time.time()
             data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
             
             optimizer.zero_grad()
@@ -276,13 +274,8 @@ if __name__ == "__main__":
 
                 with open("optim.pkl", "wb") as of:
                     pickle.dump(optimizer, of)
-            comp_time = time.time() - comp_time
 
-            progress.set_postfix({"time_percentage":str(comp_time/(data_time + comp_time))})
-            data_time = time.time()
 
-                
-        
         encoder.eval()
         decoder.eval()
         with torch.no_grad():
