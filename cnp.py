@@ -84,14 +84,14 @@ def create_data_loaders(args):
         dataset=train_data,
         batch_size=args.batch_size,
         shuffle=True,
-        num_workers=16,
+        num_workers=32,
         pin_memory=True,
         collate_fn=collate,
     )
     dev_loader = DataLoader(
         dataset=dev_data,
         batch_size=args.batch_size,
-        num_workers=16,
+        num_workers=32,
         pin_memory=True,
         collate_fn=collate,
     )
@@ -278,7 +278,7 @@ if __name__ == "__main__":
                     pickle.dump(optimizer, of)
             comp_time = time.time() - comp_time
 
-            progress.set_postfix({"time_percentage":str(comp_time/data_time)})
+            progress.set_postfix({"time_percentage":str(comp_time/(data_time + comp_time))})
             data_time = time.time()
 
                 
