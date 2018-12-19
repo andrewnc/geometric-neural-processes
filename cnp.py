@@ -249,6 +249,8 @@ if __name__ == "__main__":
         decoder.train()
         progress = tqdm(enumerate(train_loader))
 
+        data_time = 0
+
 
         for batch_idx, (data, target) in progress:
             data_time = time.time() - data_time
