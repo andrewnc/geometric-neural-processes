@@ -245,57 +245,63 @@ if __name__ == "__main__":
 
 
         for batch_idx, (data, target) in progress:
-            data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
-            
-            optimizer.zero_grad()
+            try:
+                data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
+                
+                optimizer.zero_grad()
 
-            data = data.to(device)
-            target = target.to(device)
-            
-            # run the model to get r
-            r = encoder(data)
-            mu, sigma = decoder(r)
-            
-            mu = mu.view(batch_size, n,m)
-            sigma = sigma.view(batch_size, n,m)
-            
-            log_p = get_log_p(target, mu, sigma)
-            
-            loss = -log_p.mean()
-            loss.backward()
-            optimizer.step()
-            if batch_idx % log_interval == 0:
-                progress.set_description('Loss: {:.6f} Mean: {}/{} Sig: {}/{}'.format(loss.item(), mu.max(), mu.min(), sigma.max(), sigma.min()))
-                with open("encoder_mri.pkl", "wb") as of:
-                    pickle.dump(encoder, of)
+                data = data.to(device)
+                target = target.to(device)
+                
+                # run the model to get r
+                r = encoder(data)
+                mu, sigma = decoder(r)
+                
+                mu = mu.view(batch_size, n,m)
+                sigma = sigma.view(batch_size, n,m)
+                
+                log_p = get_log_p(target, mu, sigma)
+                
+                loss = -log_p.mean()
+                loss.backward()
+                optimizer.step()
+                if batch_idx % log_interval == 0:
+                    progress.set_description('Loss: {:.6f} Mean: {}/{} Sig: {}/{}'.format(loss.item(), mu.max(), mu.min(), sigma.max(), sigma.min()))
+                    with open("encoder_mri.pkl", "wb") as of:
+                        pickle.dump(encoder, of)
 
-                with open("decoder_mri.pkl", "wb") as of:
-                    pickle.dump(decoder, of)
+                    with open("decoder_mri.pkl", "wb") as of:
+                        pickle.dump(decoder, of)
 
-                with open("optim.pkl", "wb") as of:
-                    pickle.dump(optimizer, of)
+                    with open("optim.pkl", "wb") as of:
+                        pickle.dump(optimizer, of)
+            except Exception as e:
+                print(e)
 
 
         encoder.eval()
         decoder.eval()
         with torch.no_grad():
             for i, (data, target) in enumerate(val_loader):
-                data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
+                try:
+                    data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
 
 
-                data = data.to(device)
-                target = target.to(device)
+                    data = data.to(device)
+                    target = target.to(device)
 
-                r = encoder(data)
-                mu, sigma = decoder(r)
+                    r = encoder(data)
+                    mu, sigma = decoder(r)
 
-                plt.imsave("{}target{}.png".format(epochs, i), target[0].detach().view(m,n))
-                
-                data = data.transpose(1,2).transpose(2, 3).transpose(3,4)
-                plt.imsave("{}masked_data{}.png".format(epochs, i), slice_and_dice(data[0][0][-1][:,:,0]))
+                    plt.imsave("{}target{}.png".format(epochs, i), target[0].detach().view(m,n))
+                    
+                    data = data.transpose(1,2).transpose(2, 3).transpose(3,4)
+                    plt.imsave("{}masked_data{}.png".format(epochs, i), slice_and_dice(data[0][0][-1][:,:,0]))
 
-                plt.imsave("{}mean{}.png".format(epochs, i), mu[0].detach().view(m,n))
+                    plt.imsave("{}mean{}.png".format(epochs, i), mu[0].detach().view(m,n))
 
-                plt.imsave("{}var{}.png".format(epochs, i), sigma[0].detach().view(m,n))
+                    plt.imsave("{}var{}.png".format(epochs, i), sigma[0].detach().view(m,n))
+                except Exception as e:
+                    print(e)
 
                 
