@@ -37,6 +37,8 @@ from data.mri_data import SliceData
 m,n = 320,320 #28, 28
 batch_size = 16
 
+use_cuda = True
+device = torch.device("cuda" if use_cuda else "cpu")
 class DataTransform:
     def __init__(self, mask_func, resolution, which_challenge, use_seed=True):
         if which_challenge not in ('singlecoil', 'multicoil'):
@@ -283,25 +285,24 @@ if __name__ == "__main__":
         decoder.eval()
         with torch.no_grad():
             for i, (data, target) in enumerate(val_loader):
-                try:
-                    data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
+                data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
 
 
-                    data = data.to(device)
-                    target = target.to(device)
+                data = data.to(device)
+                target = target.to(device)
 
-                    r = encoder(data)
-                    mu, sigma = decoder(r)
+                r = encoder(data)
+                mu, sigma = decoder(r)
+                mu = mu.view(batch_size, m, n)
+                sigma = sigma.view(batch_size, m,n)
 
-                    plt.imsave("{}target{}.png".format(epochs, i), target[0].detach().view(m,n))
-                    
-                    data = data.transpose(1,2).transpose(2, 3).transpose(3,4)
-                    plt.imsave("{}masked_data{}.png".format(epochs, i), slice_and_dice(data[0][0][-1][:,:,0]))
 
-                    plt.imsave("{}mean{}.png".format(epochs, i), mu[0].detach().view(m,n))
+                plt.imsave("{}target{}.png".format(epochs, i), target[0].detach().view(m,n))
 
-                    plt.imsave("{}var{}.png".format(epochs, i), sigma[0].detach().view(m,n))
-                except Exception as e:
-                    print(e)
+                data = data.transpose(1,2).transpose(2, 3).transpose(3,4)
+                plt.imsave("{}masked_data{}.png".format(epochs, i), slice_and_dice(data[0][-1][:,:,0]))
 
-                
+                plt.imsave("{}mean{}.png".format(epochs, i), mu[0].detach())
+
+                plt.imsave("{}var{}.png".format(epochs, i), sigma[0].detach())
+
