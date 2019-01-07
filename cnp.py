@@ -293,16 +293,29 @@ if __name__ == "__main__":
 
                 r = encoder(data)
                 mu, sigma = decoder(r)
-                mu = mu.view(batch_size, m, n)
-                sigma = sigma.view(batch_size, m,n)
+
+                try:
+                    mu = mu.view(batch_size, m, n)
+                    sigma = sigma.view(batch_size, m,n)
+                except Exception as e:
+                    print(e)
+                    continue
 
 
-                plt.imsave("{}target{}.png".format(epochs, i), target[0].detach().view(m,n))
+                try:
+                    plt.imsave("{}target{}.png".format(epochs, i), target[0].detach().view(m,n))
+                except Exception as e:
+                    print(e)
 
-                data = data.transpose(1,2).transpose(2, 3).transpose(3,4)
-                plt.imsave("{}masked_data{}.png".format(epochs, i), slice_and_dice(data[0][-1][:,:,0]))
+                try:
+                    data = data.transpose(1,2).transpose(2, 3).transpose(3,4)
+                    plt.imsave("{}masked_data{}.png".format(epochs, i), slice_and_dice(data[0][-1][:,:,0]))
+                except Exception as e:
+                    print(e)
 
-                plt.imsave("{}mean{}.png".format(epochs, i), mu[0].detach())
-
-                plt.imsave("{}var{}.png".format(epochs, i), sigma[0].detach())
+                try:
+                    plt.imsave("{}mean{}.png".format(epochs, i), mu[0].detach())
+                    plt.imsave("{}var{}.png".format(epochs, i), sigma[0].detach())
+                except Exception as e:
+                    print(e)
 
