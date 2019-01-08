@@ -303,19 +303,39 @@ if __name__ == "__main__":
 
 
                 try:
-                    plt.imsave("{}target{}.png".format(epochs, i), target[0].detach().view(m,n))
+                    plt.imsave("{}target{}.png".format(epoch, i), target[0].detach().view(m,n))
+
                 except Exception as e:
                     print(e)
+
+                try:
+                    plt.imsave("{}target{}last.png".format(epoch, i), target[-1].detach().view(m,n))
+                except Exception as e:
+                    print(e)
+
+
 
                 try:
                     data = data.transpose(1,2).transpose(2, 3).transpose(3,4)
-                    plt.imsave("{}masked_data{}.png".format(epochs, i), slice_and_dice(data[0][-1][:,:,0]))
+                    plt.imsave("{}masked_data{}.png".format(epoch, i), slice_and_dice(data[0][-1][:,:,0]))
                 except Exception as e:
                     print(e)
 
                 try:
-                    plt.imsave("{}mean{}.png".format(epochs, i), mu[0].detach())
-                    plt.imsave("{}var{}.png".format(epochs, i), sigma[0].detach())
+                    plt.imsave("{}masked_data{}last.png".format(epoch, i), slice_and_dice(data[-1][-1][:,:,0]))
+                except Exception as e:
+                    print(e)
+                    
+
+                try:
+                    plt.imsave("{}mean{}.png".format(epoch, i), mu[0].detach())
+                    plt.imsave("{}var{}.png".format(epoch, i), sigma[0].detach())
+                except Exception as e:
+                    print(e)
+
+                try:
+                    plt.imsave("{}mean{}last.png".format(epoch, i), mu[-1].detach())
+                    plt.imsave("{}var{}last.png".format(epoch, i), sigma[-1].detach())
                 except Exception as e:
                     print(e)
 
