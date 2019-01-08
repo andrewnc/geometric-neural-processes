@@ -201,7 +201,6 @@ def collate(batch):
 
 if __name__ == "__main__":
     use_cuda = torch.cuda.is_available()
-    torch.manual_seed(1)
     device = torch.device("cuda" if use_cuda else "cpu")
 
     _dir = "/mnt/pccfs/not_backed_up/andrew_open/mri_data/"
@@ -222,7 +221,7 @@ if __name__ == "__main__":
     test_batch_size = 1000
     epochs = 10
 
-    log_interval = 500
+    log_interval = 250
 
 
     min_context_points = num_pixels * 0.05 # always have at least 5% of all pixels
@@ -268,7 +267,7 @@ if __name__ == "__main__":
                 loss.backward()
                 optimizer.step()
                 if batch_idx % log_interval == 0:
-                    progress.set_description('Loss: {:.6f} Mean: {}/{} Sig: {}/{}'.format(loss.item(), mu.max(), mu.min(), sigma.max(), sigma.min()))
+                    progress.set_description('{} - Loss: {:.6f} Mean: {}/{} Sig: {}/{}'.format(epoch, loss.item(), mu.max(), mu.min(), sigma.max(), sigma.min()))
                     with open("encoder_mri.pkl", "wb") as of:
                         pickle.dump(encoder, of)
 
