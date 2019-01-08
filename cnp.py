@@ -267,7 +267,7 @@ if __name__ == "__main__":
                 loss.backward()
                 optimizer.step()
                 if batch_idx % log_interval == 0:
-                    progress.set_description('{} - Loss: {:.6f} Mean: {}/{} Sig: {}/{}'.format(epoch, loss.item(), mu.max(), mu.min(), sigma.max(), sigma.min()))
+                    progress.set_description('{} - Loss: {:.6f} Mean: {:.6f}/{:.6f} Sig: {:.6f}/{:.6f}'.format(epoch, loss.item(), mu.max(), mu.min(), sigma.max(), sigma.min()))
                     with open("encoder_mri.pkl", "wb") as of:
                         pickle.dump(encoder, of)
 
