@@ -35,7 +35,7 @@ from data import transforms
 from data.mri_data import SliceData
 
 
-m,n = 320,320 #28, 28
+m,n = 224,224 #28, 28
 batch_size = 16
 
 use_cuda = True
@@ -157,13 +157,13 @@ class MRIEncoder(nn.Module):
 class ResEncoder(nn.Module):
     def __init__(self):
         super(ResEncoder, self).__init__()
-        self.conv2 = nn.Conv2d(2, 3, kernel_size=1)
-        self.internal_model = resnet50(input_size=(1, 2, 320, 320))
+        self.conv1 = nn.Conv2d(2, 3, kernel_size=1)
+        self.internal_model = resnet50()
         self.fc = nn.Linear(1000, 128)
 
     def forward(self, x):
         print(x.shape)
-        # x = self.conv2(x)
+        x = self.conv2(x)
         # print(x.shape)
         x = self.internal_model(x)
         print(x.shape)
