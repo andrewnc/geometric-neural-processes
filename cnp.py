@@ -163,7 +163,6 @@ class ResEncoder(nn.Module):
 
     def forward(self, x):
         x = self.conv2(x)
-        print(x.shape)
         x = self.internal_model(x)
         return self.fc(x).view(1, 128)
 
