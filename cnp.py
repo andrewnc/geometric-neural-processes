@@ -162,7 +162,10 @@ class ResEncoder(nn.Module):
         self.fc = nn.Linear(1000, 128)
 
     def forward(self, x):
-        return self.fc(self.internal_model(self.conv2(x))).view(1, 128)
+        print(x.shape)
+        x = self.conv2(x)
+        print(x.shape)
+        return self.fc(self.internal_model(x)).view(1, 128)
 
 class MRIDecoder(nn.Module):
     def __init__(self, m=320, n=320):
@@ -264,7 +267,10 @@ if __name__ == "__main__":
 
                 t_dim = data.shape[2]
 
-                data = data[:,:,-1:,:,].view(batch_size, 2, m, n)
+                r = np.random.randint(0, t_dim-1)
+
+                # pull out a specific time slice, this gives more variety in the dataset
+                data = data[:,:,r,:,]
 
                 
                 optimizer.zero_grad()
