@@ -9,6 +9,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torchvision.models import resnet50
 
 from tqdm import tqdm
 
@@ -153,6 +154,16 @@ class MRIEncoder(nn.Module):
         out = torch.mean(out.view((128,out.shape[2]*38*38)), 1).view(1, 128) # reshape and aggregate (using the mean, which works because it is commutative)
         return out
     
+class ResEncoder(nn.Module):
+    def __init__(self):
+        super(ResEncoder, self).__init__()
+        self.conv2 = nn.Conv2d(2, 3, kernel_size=1)
+        self.internal_model = resnet50()
+        self.fc = nn.Linear(1000, 128)
+
+    def forward(self, x):
+        return self.fc(self.internal_model(self.conv2(x))).view(1, 128)
+
 class MRIDecoder(nn.Module):
     def __init__(self, m=320, n=320):
         super(MRIDecoder, self).__init__()
@@ -204,6 +215,7 @@ if __name__ == "__main__":
     device = torch.device("cuda" if use_cuda else "cpu")
 
     _dir = "/mnt/pccfs/not_backed_up/andrew_open/mri_data/"
+    # _dir = "/raid/remote/mri_data/"
     train_dir = _dir + "singlecoil_train/"
     test_dir = _dir + "singlecoil_test/"
 
@@ -227,7 +239,8 @@ if __name__ == "__main__":
     min_context_points = num_pixels * 0.05 # always have at least 5% of all pixels
     max_context_points = num_pixels * 0.95 # always have at most 95% of all pixels
 
-    encoder = MRIEncoder().to(device)
+    # encoder = MRIEncoder().to(device)
+    encoder = ResEncoder().to(device)
     decoder = MRIDecoder(m, n).to(device)
 
     encoder = nn.DataParallel(encoder)
@@ -248,6 +261,11 @@ if __name__ == "__main__":
         for batch_idx, (data, target) in progress:
             try:
                 data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
+
+                t_dim = data.shape[2]
+
+                data = data[:,:,np.random.randint(0, t_dim-1):,:,].view(batch_size, 2, m, n)
+
                 
                 optimizer.zero_grad()
 
