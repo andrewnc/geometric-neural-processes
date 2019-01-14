@@ -264,11 +264,7 @@ if __name__ == "__main__":
 
                 t_dim = data.shape[2]
 
-                rand_value = np.random.randint(0, t_dim-1)
-                print(rand_value)
-                print(data[:,:,rand_value:,:,].shape, data[:,:,-1:,:,].shape)
-
-                data = data[:,:,rand_value:,:,].view(batch_size, 2, m, n)
+                data = data[:,:,-1:,:,].view(batch_size, 2, m, n)
 
                 
                 optimizer.zero_grad()
