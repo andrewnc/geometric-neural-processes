@@ -36,7 +36,7 @@ from data.mri_data import SliceData
 
 
 m,n = 224,224 #28, 28
-batch_size = 16
+batch_size = 1
 
 use_cuda = True
 device = torch.device("cuda" if use_cuda else "cpu")
@@ -224,12 +224,12 @@ if __name__ == "__main__":
 
             
     # we will want to vary these and see how the method performs
-    args = ARGS("singlecoil",[0.08, 0.04],[4, 8], 320, _dir, 1, 16)
+    args = ARGS("singlecoil",[0.08, 0.04],[4, 8], m, _dir, 1, batch_size)
 
     train_loader, val_loader = create_data_loaders(args)
 
     # most of these are not relevant for the mri experiment
-    m,n = 320,320 #28, 28
+    # m,n = 320,320 #28, 28
     num_pixels = m*n
 
     
