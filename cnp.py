@@ -158,14 +158,16 @@ class ResEncoder(nn.Module):
     def __init__(self):
         super(ResEncoder, self).__init__()
         self.conv2 = nn.Conv2d(2, 3, kernel_size=1)
-        self.internal_model = resnet50()
+        self.internal_model = resnet50(input_size=(1, 2, 320, 320))
         self.fc = nn.Linear(1000, 128)
 
     def forward(self, x):
         print(x.shape)
-        x = self.conv2(x)
+        # x = self.conv2(x)
+        # print(x.shape)
+        x = self.internal_model(x)
         print(x.shape)
-        return self.fc(self.internal_model(x)).view(1, 128)
+        return self.fc(x).view(1, 128)
 
 class MRIDecoder(nn.Module):
     def __init__(self, m=320, n=320):
