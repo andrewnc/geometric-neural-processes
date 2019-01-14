@@ -214,8 +214,8 @@ if __name__ == "__main__":
     use_cuda = torch.cuda.is_available()
     device = torch.device("cuda" if use_cuda else "cpu")
 
-    _dir = "/mnt/pccfs/not_backed_up/andrew_open/mri_data/"
-    # _dir = "/raid/remote/mri_data/"
+    # _dir = "/mnt/pccfs/not_backed_up/andrew_open/mri_data/"
+    _dir = "/raid/remote/mri_data/"
     train_dir = _dir + "singlecoil_train/"
     test_dir = _dir + "singlecoil_test/"
 
