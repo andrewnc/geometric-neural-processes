@@ -164,6 +164,7 @@ class ResEncoder(nn.Module):
     def forward(self, x):
         x = self.conv2(x)
         x = self.internal_model(x)
+        print(x.shape)
         return self.fc(x).view(1, 128)
 
 class MRIDecoder(nn.Module):
