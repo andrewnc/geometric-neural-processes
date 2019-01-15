@@ -313,6 +313,8 @@ if __name__ == "__main__":
                 data = data.to(device)
                 target = target.to(device)
 
+                data = data[:,:,-1,:,]
+
                 r = encoder(data)
                 mu, sigma = decoder(r)
 
