@@ -36,7 +36,7 @@ from data.mri_data import SliceData
 
 
 m,n = 224,224 #28, 28
-batch_size = 1
+batch_size = 16
 
 use_cuda = True
 device = torch.device("cuda" if use_cuda else "cpu")
