@@ -103,6 +103,10 @@ def create_data_loaders(args):
 def get_log_p(data, mu, sigma):
     return -torch.log(torch.sqrt(2*math.pi*sigma**2)) - (data - mu)**2/(2*sigma**2)
 
+def normal_kl(mu1, sigma1, mu2, sigma2):
+    return 1/2 * ((1 + torch.log(sigma1**2) - mu1**2 - sigma1**2)+(1 + torch.log(sigma2**2) - mu2**2 - sigma2**2))
+
+
 def slice_and_dice(kspace):
     a = np.abs(np.fft.ifft2(kspace))
     b = np.vstack((a[len(a)//2:], a[:len(a)//2]))
@@ -164,7 +168,8 @@ class ResEncoder(nn.Module):
     def forward(self, x):
         x = self.conv2(x)
         x = self.internal_model(x)
-        return self.fc(x).view(1, 128)
+        x = self.fc(x)
+        return torch.mean(x.view(batch_size, 128), 0).view(1, 128)
 
 class MRIDecoder(nn.Module):
     def __init__(self, m=320, n=320):
@@ -280,13 +285,19 @@ if __name__ == "__main__":
                 # run the model to get r
                 r = encoder(data)
                 mu, sigma = decoder(r)
+
+                r_target = encoder(target)
+                mu_target, sigma_target = decoder(r_target)
+
+                mu_target = mu_traget.view(n, m)
+                sigma_target = sigma_target.view(n, m)
                 
                 mu = mu.view(batch_size, n,m)
                 sigma = sigma.view(batch_size, n,m)
                 
                 log_p = get_log_p(target, mu, sigma)
                 
-                loss = -log_p.mean()
+                loss = -log_p.mean() + normal_kl(mu, sigma, mu_target, sigma_target)
                 loss.backward()
                 optimizer.step()
                 if batch_idx % log_interval == 0:
@@ -302,6 +313,8 @@ if __name__ == "__main__":
             except Exception as e:
                 print(e)
 
+            break
+
 
         encoder.eval()
         decoder.eval()
@@ -312,7 +325,6 @@ if __name__ == "__main__":
 
                 data = data.to(device)
                 target = target.to(device)
-
                 data = data[:,:,-1,:,]
 
                 r = encoder(data)
