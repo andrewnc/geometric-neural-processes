@@ -167,6 +167,8 @@ class ResEncoder(nn.Module):
 
     def forward(self, x):
         print(x.shape)
+        if(len(x.shape) == 3):
+            x = x.view(x.shape[0], 1, x.shape[1], x.shape[2])
         x = self.conv2(x)
         print(x.shape)
         x = self.internal_model(x)
