@@ -269,12 +269,12 @@ if __name__ == "__main__":
             try:
                 data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
 
-                # t_dim = data.shape[2]
+                t_dim = data.shape[2]
 
-                # r = np.random.randint(0, t_dim-1)
+                r = np.random.randint(0, t_dim-1)
 
-                # # pull out a specific time slice, this gives more variety in the dataset
-                # data = data[:,:,r,:,]
+                # pull out a specific time slice, this gives more variety in the dataset
+                data = data[:,:,r,:,]
 
                 
                 optimizer.zero_grad()
