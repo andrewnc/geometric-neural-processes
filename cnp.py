@@ -169,7 +169,7 @@ class ResEncoder(nn.Module):
         x = self.conv2(x)
         x = self.internal_model(x)
         x = self.fc(x)
-        return torch.mean(x.view(batch_size, 128), 0).view(1, 128)
+        return x.view(1, 128)
 
 class MRIDecoder(nn.Module):
     def __init__(self, m=320, n=320):
