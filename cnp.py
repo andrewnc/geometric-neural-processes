@@ -161,13 +161,14 @@ class MRIEncoder(nn.Module):
 class ResEncoder(nn.Module):
     def __init__(self):
         super(ResEncoder, self).__init__()
+        self.conv1 = nn.Conv2d(1, 2, kernel_size=1)
         self.conv2 = nn.Conv2d(2, 3, kernel_size=1)
         self.internal_model = resnet50()
         self.fc = nn.Linear(1000, 128)
 
     def forward(self, x):
-        if(len(x.shape) == 3):
-            x = x.view(x.shape[0], 1, x.shape[1], x.shape[2])
+        if(x.shape[1] == 1):
+            x = self.conv1(x)
         x = self.conv2(x)
         x = self.internal_model(x)
         x = self.fc(x)
@@ -287,13 +288,13 @@ if __name__ == "__main__":
             r = encoder(data)
             mu, sigma = decoder(r)
 
-            print(target.shape)
+            expanded_target = target.view(batch_size, 1, m, n)
 
-            # r_target = encoder(target)
-            # mu_target, sigma_target = decoder(r_target)
+            r_target = encoder(expanded_target)
+            mu_target, sigma_target = decoder(r_target)
 
-            # mu_target = mu_traget.view(n, m)
-            # sigma_target = sigma_target.view(n, m)
+            mu_target = mu_traget.view(n, m)
+            sigma_target = sigma_target.view(n, m)
             
             mu = mu.view(batch_size, n,m)
             sigma = sigma.view(batch_size, n,m)
