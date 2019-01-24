@@ -287,6 +287,8 @@ if __name__ == "__main__":
             r = encoder(data)
             mu, sigma = decoder(r)
 
+            print(target.shape)
+
             # r_target = encoder(target)
             # mu_target, sigma_target = decoder(r_target)
 
