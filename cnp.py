@@ -293,11 +293,11 @@ if __name__ == "__main__":
             r_target = encoder(expanded_target)
             mu_target, sigma_target = decoder(r_target)
 
-            mu_target = mu_target.view(n, m)
-            sigma_target = sigma_target.view(n, m)
+            mu_target = mu_target.view(batch_size, m, n)
+            sigma_target = sigma_target.view(batch_size, m,n)
             
-            mu = mu.view(batch_size, n,m)
-            sigma = sigma.view(batch_size, n,m)
+            mu = mu.view(batch_size, m,n)
+            sigma = sigma.view(batch_size, m, n)
             
             log_p = get_log_p(target, mu, sigma)
             
