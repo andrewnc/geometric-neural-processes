@@ -287,18 +287,18 @@ if __name__ == "__main__":
             r = encoder(data)
             mu, sigma = decoder(r)
 
-            r_target = encoder(target)
-            mu_target, sigma_target = decoder(r_target)
+            # r_target = encoder(target)
+            # mu_target, sigma_target = decoder(r_target)
 
-            mu_target = mu_traget.view(n, m)
-            sigma_target = sigma_target.view(n, m)
+            # mu_target = mu_traget.view(n, m)
+            # sigma_target = sigma_target.view(n, m)
             
             mu = mu.view(batch_size, n,m)
             sigma = sigma.view(batch_size, n,m)
             
             log_p = get_log_p(target, mu, sigma)
             
-            loss = -log_p.mean() + normal_kl(mu, sigma, mu_target, sigma_target)
+            # loss = -log_p.mean() + normal_kl(mu, sigma, mu_target, sigma_target)
             loss.backward()
             optimizer.step()
             if batch_idx % log_interval == 0:
