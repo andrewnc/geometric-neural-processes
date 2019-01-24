@@ -298,7 +298,7 @@ if __name__ == "__main__":
             
             log_p = get_log_p(target, mu, sigma)
             
-            # loss = -log_p.mean() + normal_kl(mu, sigma, mu_target, sigma_target)
+            loss = -log_p.mean()# + normal_kl(mu, sigma, mu_target, sigma_target)
             loss.backward()
             optimizer.step()
             if batch_idx % log_interval == 0:
