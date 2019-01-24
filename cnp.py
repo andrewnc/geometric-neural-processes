@@ -36,7 +36,7 @@ from data.mri_data import SliceData
 
 
 m,n = 224,224 #28, 28
-batch_size = 16
+batch_size = 12
 
 use_cuda = True
 device = torch.device("cuda" if use_cuda else "cpu")
@@ -166,15 +166,11 @@ class ResEncoder(nn.Module):
         self.fc = nn.Linear(1000, 128)
 
     def forward(self, x):
-        print(x.shape)
         if(len(x.shape) == 3):
             x = x.view(x.shape[0], 1, x.shape[1], x.shape[2])
         x = self.conv2(x)
-        print(x.shape)
         x = self.internal_model(x)
-        print(x.shape)
         x = self.fc(x)
-        print(x.shape)
         return x.view(1, 128)
 
 class MRIDecoder(nn.Module):
