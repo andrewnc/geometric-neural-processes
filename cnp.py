@@ -268,59 +268,51 @@ if __name__ == "__main__":
 
 
         for batch_idx, (data, target) in progress:
-            try:
-                data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
+            # try:
+            data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
 
-                print(data.shape)
+            t_dim = data.shape[2]
 
-                t_dim = data.shape[2]
+            r = np.random.randint(0, t_dim-1)
 
-                r = np.random.randint(0, t_dim-1)
+            # pull out a specific time slice, this gives more variety in the dataset
+            data = data[:,:,r,:,]
 
-                # pull out a specific time slice, this gives more variety in the dataset
-                data = data[:,:,r,:,]
+            optimizer.zero_grad()
 
-                print(data.shape)
+            data = data.to(device)
+            target = target.to(device)
+            
+            # run the model to get r
+            r = encoder(data)
+            mu, sigma = decoder(r)
 
-                
-                optimizer.zero_grad()
+            r_target = encoder(target)
+            mu_target, sigma_target = decoder(r_target)
 
-                data = data.to(device)
-                target = target.to(device)
-                
-                # run the model to get r
-                r = encoder(data)
-                mu, sigma = decoder(r)
+            mu_target = mu_traget.view(n, m)
+            sigma_target = sigma_target.view(n, m)
+            
+            mu = mu.view(batch_size, n,m)
+            sigma = sigma.view(batch_size, n,m)
+            
+            log_p = get_log_p(target, mu, sigma)
+            
+            loss = -log_p.mean() + normal_kl(mu, sigma, mu_target, sigma_target)
+            loss.backward()
+            optimizer.step()
+            if batch_idx % log_interval == 0:
+                progress.set_description('{} - Loss: {:.6f} Mean: {:.6f}/{:.6f} Sig: {:.6f}/{:.6f}'.format(epoch, loss.item(), mu.max(), mu.min(), sigma.max(), sigma.min()))
+                with open("encoder_mri.pkl", "wb") as of:
+                    pickle.dump(encoder, of)
 
-                r_target = encoder(target)
-                mu_target, sigma_target = decoder(r_target)
+                with open("decoder_mri.pkl", "wb") as of:
+                    pickle.dump(decoder, of)
 
-                mu_target = mu_traget.view(n, m)
-                sigma_target = sigma_target.view(n, m)
-                
-                mu = mu.view(batch_size, n,m)
-                sigma = sigma.view(batch_size, n,m)
-                
-                log_p = get_log_p(target, mu, sigma)
-                
-                loss = -log_p.mean() + normal_kl(mu, sigma, mu_target, sigma_target)
-                loss.backward()
-                optimizer.step()
-                if batch_idx % log_interval == 0:
-                    progress.set_description('{} - Loss: {:.6f} Mean: {:.6f}/{:.6f} Sig: {:.6f}/{:.6f}'.format(epoch, loss.item(), mu.max(), mu.min(), sigma.max(), sigma.min()))
-                    with open("encoder_mri.pkl", "wb") as of:
-                        pickle.dump(encoder, of)
-
-                    with open("decoder_mri.pkl", "wb") as of:
-                        pickle.dump(decoder, of)
-
-                    with open("optim.pkl", "wb") as of:
-                        pickle.dump(optimizer, of)
-            except Exception as e:
-                print(e)
-
-            break
-
+                with open("optim.pkl", "wb") as of:
+                    pickle.dump(optimizer, of)
+            # except Exception as e:
+            #     print(e)
 
         encoder.eval()
         decoder.eval()
