@@ -319,17 +319,22 @@ if __name__ == "__main__":
                     pickle.dump(optimizer, of)
             # except Exception as e:
             #     print(e)
+            break
 
         encoder.eval()
         decoder.eval()
         with torch.no_grad():
             for i, (data, target) in enumerate(val_loader):
+                print(data.shape)
                 data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
 
 
                 data = data.to(device)
                 target = target.to(device)
+
+                print(data.shape)
                 data = data[:,:,-1,:,]
+                print(data.shape)
 
                 r = encoder(data)
                 mu, sigma = decoder(r)
