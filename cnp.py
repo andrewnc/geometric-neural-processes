@@ -277,7 +277,10 @@ if __name__ == "__main__":
             r = np.random.randint(0, t_dim-1)
 
             # pull out a specific time slice, this gives more variety in the dataset
-            data = data[:,:,r,:,].view(batch_size, 2, m, n)
+            try:
+                data = data[:,:,r,:,].view(batch_size, 2, m, n)
+            except:
+                continue
 
             optimizer.zero_grad()
 
