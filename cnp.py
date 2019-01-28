@@ -35,7 +35,7 @@ from data import transforms
 from data.mri_data import SliceData
 
 
-m,n = 64, 64 #224,224 #28, 28
+m,n = 224,224 #28, 28
 batch_size = 16
 
 use_cuda = True
@@ -181,6 +181,7 @@ class MRIDecoder(nn.Module):
         self.n = n
         self.fc1 = nn.Linear(130, 128)
         self.fc2 = nn.Linear(128, 128)
+        self.fc2_5 = nn.Linear(128, 128)
         self.fc3 = nn.Linear(128, 64)
         self.fc4 = nn.Linear(64, 2)
         
@@ -191,7 +192,7 @@ class MRIDecoder(nn.Module):
         x = torch.tensor([[i, j] for i in range(0,self.m) for j in range(0,self.n)]).float().to(device)
         x = torch.cat((x, r.view(1,-1).repeat(1,self.m*self.n).view(self.m*self.n,128)), 1)
         
-        h = self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(x)))))))
+        h = self.fc4(F.relu(self.fc3(F.relu(self.fc2_5(F.relu(self.fc2(F.relu(self.fc1(x)))))))))
         
         mu_real = h[:,0]
         log_sigma_real = h[:,1]
