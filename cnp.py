@@ -337,7 +337,10 @@ if __name__ == "__main__":
                 print(data.shape)
 
                 r = encoder(data)
+
+                print(r.shape)
                 mu, sigma = decoder(r)
+                print(mu.shape, sigma.shape)
 
                 try:
                     mu = mu.view(batch_size, m, n)
