@@ -325,22 +325,17 @@ if __name__ == "__main__":
         decoder.eval()
         with torch.no_grad():
             for i, (data, target) in enumerate(val_loader):
-                print(data.shape)
                 data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
 
 
                 data = data.to(device)
                 target = target.to(device)
 
-                print(data.shape)
                 data = data[:,:,-1,:,]
-                print(data.shape)
 
                 r = encoder(data)
 
-                print(r.shape)
                 mu, sigma = decoder(r)
-                print(mu.shape, sigma.shape)
 
                 try:
                     mu = mu.view(batch_size, m, n)
@@ -368,6 +363,9 @@ if __name__ == "__main__":
 
                 try:
                     data = data.transpose(1,2).transpose(2, 3)
+                    print(data.shape)
+                    print(data[0].shape)
+                    print(data[-1].shape)
                     plt.imsave("{}masked_data{}.png".format(epoch, i), slice_and_dice(data[0][-1][:,:,0]))
                 except Exception as e:
                     print("could not transpose, or slice and dice first")
