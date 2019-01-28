@@ -35,8 +35,8 @@ from data import transforms
 from data.mri_data import SliceData
 
 
-m,n = 224,224 #28, 28
-batch_size = 12
+m,n = 64, 64 #224,224 #28, 28
+batch_size = 16
 
 use_cuda = True
 device = torch.device("cuda" if use_cuda else "cpu")
@@ -319,7 +319,6 @@ if __name__ == "__main__":
                     pickle.dump(optimizer, of)
             # except Exception as e:
             #     print(e)
-            break
 
         encoder.eval()
         decoder.eval()
