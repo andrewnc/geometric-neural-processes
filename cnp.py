@@ -346,6 +346,7 @@ if __name__ == "__main__":
                     mu = mu.view(batch_size, m, n)
                     sigma = sigma.view(batch_size, m,n)
                 except Exception as e:
+                    print("could not resize")
                     print(e)
                     continue
 
@@ -354,11 +355,13 @@ if __name__ == "__main__":
                     plt.imsave("{}target{}.png".format(epoch, i), target[0].detach().view(m,n))
 
                 except Exception as e:
+                    print("could not save first target")
                     print(e)
 
                 try:
                     plt.imsave("{}target{}last.png".format(epoch, i), target[-1].detach().view(m,n))
                 except Exception as e:
+                    print("could not save last target")
                     print(e)
 
 
@@ -367,11 +370,13 @@ if __name__ == "__main__":
                     data = data.transpose(1,2).transpose(2, 3).transpose(3,4)
                     plt.imsave("{}masked_data{}.png".format(epoch, i), slice_and_dice(data[0][-1][:,:,0]))
                 except Exception as e:
+                    print("could not transpose, or slice and dice first")
                     print(e)
 
                 try:
                     plt.imsave("{}masked_data{}last.png".format(epoch, i), slice_and_dice(data[-1][-1][:,:,0]))
                 except Exception as e:
+                    print("could not transpose, or slice and dice last")
                     print(e)
                     
 
@@ -379,11 +384,13 @@ if __name__ == "__main__":
                     plt.imsave("{}mean{}.png".format(epoch, i), mu[0].detach())
                     plt.imsave("{}var{}.png".format(epoch, i), sigma[0].detach())
                 except Exception as e:
+                    print("could not save mean or var first")
                     print(e)
 
                 try:
                     plt.imsave("{}mean{}last.png".format(epoch, i), mu[-1].detach())
                     plt.imsave("{}var{}last.png".format(epoch, i), sigma[-1].detach())
                 except Exception as e:
+                    print("could not save mean or var last")
                     print(e)
 
