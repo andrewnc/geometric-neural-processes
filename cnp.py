@@ -367,7 +367,7 @@ if __name__ == "__main__":
 
 
                 try:
-                    data = data.transpose(1,2).transpose(2, 3).transpose(3,4)
+                    data = data.transpose(1,2).transpose(2, 3)
                     plt.imsave("{}masked_data{}.png".format(epoch, i), slice_and_dice(data[0][-1][:,:,0]))
                 except Exception as e:
                     print("could not transpose, or slice and dice first")
