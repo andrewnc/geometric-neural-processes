@@ -101,7 +101,7 @@ def create_data_loaders(args):
     return train_loader, dev_loader
 
 def get_log_p(data, mu, sigma):
-    return -torch.log(torch.sqrt(2*math.pi*sigma**2)) - (data - mu)**2/(2*sigma**2)
+    return -torch.log(torch.sqrt(2*math.pi*(sigma**2))) - (data - mu)**2/(2*(sigma**2))
 
 def normal_kl(mu1, sigma1, mu2, sigma2):
     return 1/2 * ((1 + torch.log(sigma1**2) - mu1**2 - sigma1**2)+(1 + torch.log(sigma2**2) - mu2**2 - sigma2**2))
@@ -195,11 +195,11 @@ class MRIDecoder(nn.Module):
         h = self.fc4(F.relu(self.fc3(F.relu(self.fc2_5(F.relu(self.fc2(F.relu(self.fc1(x)))))))))
         
         mu_real = h[:,0]
-        log_sigma_real = h[:,1]
+        sigma_real = h[:,1]
         
         
         # bound the variance
-        sigma_real = 0.1 + 0.9 * F.softplus(log_sigma_real)
+        sigma_real = 0.1 + 0.9 * F.softplus(sigma_real)
         
         return mu_real, sigma_real
 
@@ -273,13 +273,13 @@ if __name__ == "__main__":
             # try:
             data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
 
-            t_dim = data.shape[2]
+            # t_dim = data.shape[2]
 
-            r = np.random.randint(0, t_dim-1)
+            # r = np.random.randint(0, t_dim-1)
 
             # pull out a specific time slice, this gives more variety in the dataset
             try:
-                data = data[:,:,r,:,].view(batch_size, 2, m, n)
+                data = data[:,:,-1,:,].view(batch_size, 2, m, n)
             except:
                 continue
 
@@ -292,20 +292,20 @@ if __name__ == "__main__":
             r = encoder(data)
             mu, sigma = decoder(r)
 
-            expanded_target = target.view(batch_size, 1, m, n)
+            # expanded_target = target.view(batch_size, 1, m, n)
 
-            r_target = encoder(expanded_target)
-            mu_target, sigma_target = decoder(r_target)
+            # r_target = encoder(expanded_target)
+            # mu_target, sigma_target = decoder(r_target)
 
-            mu_target = mu_target.view(batch_size, m, n)
-            sigma_target = sigma_target.view(batch_size, m,n)
+            # mu_target = mu_target.view(batch_size, m, n)
+            # sigma_target = sigma_target.view(batch_size, m,n)
             
             mu = mu.view(batch_size, m,n)
             sigma = sigma.view(batch_size, m, n)
             
             log_p = get_log_p(target, mu, sigma)
             
-            loss = -log_p.mean() + normal_kl(mu, sigma, mu_target, sigma_target).mean()
+            loss = -log_p.mean()# + normal_kl(mu, sigma, mu_target, sigma_target).mean()
             loss.backward()
             optimizer.step()
             if batch_idx % log_interval == 0:
