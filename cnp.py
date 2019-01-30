@@ -232,7 +232,7 @@ if __name__ == "__main__":
 
             
     # we will want to vary these and see how the method performs
-    args = ARGS("singlecoil",[0.08, 0.04],[4, 8], m, _dir, 0.1, batch_size)
+    args = ARGS("singlecoil",[0.08, 0.04],[4, 8], m, _dir, 1, batch_size)
 
     train_loader, val_loader = create_data_loaders(args)
 
@@ -305,7 +305,7 @@ if __name__ == "__main__":
             
             log_p = get_log_p(target, mu, sigma)
             
-            loss = -log_p.mean()# + normal_kl(mu, sigma, mu_target, sigma_target).mean()
+            loss = -log_p.max()# + normal_kl(mu, sigma, mu_target, sigma_target).mean()
             loss.backward()
             optimizer.step()
             if batch_idx % log_interval == 0:
@@ -324,7 +324,7 @@ if __name__ == "__main__":
         encoder.eval()
         decoder.eval()
         with torch.no_grad():
-            for i, (data, target) in enumerate(train_loader):
+            for i, (data, target) in enumerate(val_loader):
                 data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
 
 
