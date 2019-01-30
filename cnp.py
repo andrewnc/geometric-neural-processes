@@ -232,7 +232,7 @@ if __name__ == "__main__":
 
             
     # we will want to vary these and see how the method performs
-    args = ARGS("singlecoil",[0.08, 0.04],[4, 8], m, _dir, 1, batch_size)
+    args = ARGS("singlecoil",[.9],[10], m, _dir, 1, batch_size)
 
     train_loader, val_loader = create_data_loaders(args)
 
