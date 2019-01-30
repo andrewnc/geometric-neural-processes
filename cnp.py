@@ -228,7 +228,7 @@ if __name__ == "__main__":
     # _dir = "/mnt/pccfs/not_backed_up/andrew_open/mri_data/"
     _dir = "/raid/remote/mri_data/"
     train_dir = _dir + "singlecoil_train/"
-    test_dir = _dir + "singlecoil_train/"
+    test_dir = _dir + "singlecoil_test/" # not used
 
             
     # we will want to vary these and see how the method performs
@@ -324,7 +324,7 @@ if __name__ == "__main__":
         encoder.eval()
         decoder.eval()
         with torch.no_grad():
-            for i, (data, target) in enumerate(val_loader):
+            for i, (data, target) in enumerate(train_loader):
                 data = data.transpose(-1, 1).transpose(-1, -2).transpose(-2, -3)
 
 
