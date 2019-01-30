@@ -228,11 +228,11 @@ if __name__ == "__main__":
     # _dir = "/mnt/pccfs/not_backed_up/andrew_open/mri_data/"
     _dir = "/raid/remote/mri_data/"
     train_dir = _dir + "singlecoil_train/"
-    test_dir = _dir + "singlecoil_test/"
+    test_dir = _dir + "singlecoil_train/"
 
             
     # we will want to vary these and see how the method performs
-    args = ARGS("singlecoil",[.9],[10], m, _dir, 1, batch_size)
+    args = ARGS("singlecoil",[0.08, 0.04],[4, 8], m, _dir, 0.00001, batch_size)
 
     train_loader, val_loader = create_data_loaders(args)
 
