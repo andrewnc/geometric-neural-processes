@@ -171,17 +171,16 @@ class ResEncoder(nn.Module):
             x = self.conv1(x)
         x = self.conv2(x)
         x = self.internal_model(x)
-        x = self.fc(x)
-        return x.view(1, 128)
+        return x.view(1, 1000)
 
 class MRIDecoder(nn.Module):
     def __init__(self, m=320, n=320):
         super(MRIDecoder, self).__init__()
         self.m = m
         self.n = n
-        self.fc1 = nn.Linear(130, 128)
-        self.fc2 = nn.Linear(128, 128)
-        self.fc2_5 = nn.Linear(128, 128)
+        self.fc1 = nn.Linear(1002, 512)
+        self.fc2 = nn.Linear(512, 256)
+        self.fc2_5 = nn.Linear(256, 128)
         self.fc3 = nn.Linear(128, 64)
         self.fc4 = nn.Linear(64, 2)
         
