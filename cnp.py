@@ -189,7 +189,7 @@ class MRIDecoder(nn.Module):
         
         # we only take in r, because in this case x is all points in size of image (n, m)
         x = torch.tensor([[i, j] for i in range(0,self.m) for j in range(0,self.n)]).float().to(device)
-        x = torch.cat((x, r.view(1,-1).repeat(1,self.m*self.n).view(self.m*self.n,128)), 1)
+        x = torch.cat((x, r.view(1,-1).repeat(1,self.m*self.n).view(self.m*self.n,1000)), 1)
         
         h = self.fc4(F.relu(self.fc3(F.relu(self.fc2_5(F.relu(self.fc2(F.relu(self.fc1(x)))))))))
         
