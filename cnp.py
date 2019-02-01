@@ -165,7 +165,7 @@ class ResEncoder(nn.Module):
         self.conv2 = nn.Conv2d(2, 3, kernel_size=1)
         self.internal_model = resnet50()
         self.fc = nn.Linear(1000, 128)
-        self.a = nn.Parameter(torch.randint(1, 10, (1,)))
+        self.a = nn.Parameter(torch.randn(1))
         self.b = nn.Parameter(torch.randn(1000,1))
         self.W = nn.Parameter(torch.randn(1000,1000))
 
@@ -313,10 +313,9 @@ if __name__ == "__main__":
             # this seems extremely inefficient
             for name, param in encoder.named_parameters():
                 if name == "module.a":
-                    loss = -log_p.mean() + lmbda * param**2 / 2
+                    
 
-            print(encoder.module.a)
-
+            loss = -log_p.mean() + lmbda * encoder.module.a**2 / 2
             loss.backward()
             optimizer.step()
             if batch_idx % log_interval == 0:
