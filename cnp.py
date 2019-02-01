@@ -309,6 +309,9 @@ if __name__ == "__main__":
             sigma = sigma.view(batch_size, m, n)
             
             log_p = get_log_p(target, mu, sigma)
+
+            print(encoder.parameters())
+            print(encoder.named_parameters())
             
             loss = -log_p.mean() + lmbda * encoder.a**2 / 2
             loss.backward()
