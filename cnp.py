@@ -165,12 +165,16 @@ class ResEncoder(nn.Module):
         self.conv2 = nn.Conv2d(2, 3, kernel_size=1)
         self.internal_model = resnet50()
         self.fc = nn.Linear(1000, 128)
+        self.a = nn.Parameter(torch.randint(1, 10, (1,)))
+        self.b = nn.Parameter(torch.randint(1, 10, (1,)))
+        self.W = nn.Paramter(torch.randn(1000,1000))
 
     def forward(self, x):
         if(x.shape[1] == 1):
             x = self.conv1(x)
         x = self.conv2(x)
         x = self.internal_model(x)
+        x = x + self.a * torch.exp(torch.mm(self.W, x) + self.b) # one neuron
         return x.view(1, 1000)
 
 class MRIDecoder(nn.Module):
@@ -242,6 +246,7 @@ if __name__ == "__main__":
     
     test_batch_size = 1000
     epochs = 10
+    lmbda = 0.5 # not sure what to do with this
 
     log_interval = 250
 
@@ -291,20 +296,20 @@ if __name__ == "__main__":
             r = encoder(data)
             mu, sigma = decoder(r)
 
-            expanded_target = target.view(batch_size, 1, m, n)
+            # expanded_target = target.view(batch_size, 1, m, n)
 
-            r_target = encoder(expanded_target)
-            mu_target, sigma_target = decoder(r_target)
+            # r_target = encoder(expanded_target)
+            # mu_target, sigma_target = decoder(r_target)
 
-            mu_target = mu_target.view(batch_size, m, n)
-            sigma_target = sigma_target.view(batch_size, m,n)
+            # mu_target = mu_target.view(batch_size, m, n)
+            # sigma_target = sigma_target.view(batch_size, m,n)
             
             mu = mu.view(batch_size, m,n)
             sigma = sigma.view(batch_size, m, n)
             
             log_p = get_log_p(target, mu, sigma)
             
-            loss = -log_p.mean() + normal_kl(mu, sigma, mu_target, sigma_target).mean()
+            loss = -log_p.mean() + lmbda * encoder.a**2 / 2
             loss.backward()
             optimizer.step()
             if batch_idx % log_interval == 0:
