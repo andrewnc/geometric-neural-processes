@@ -166,7 +166,7 @@ class ResEncoder(nn.Module):
         self.internal_model = resnet50()
         self.fc = nn.Linear(1000, 128)
         self.a = nn.Parameter(torch.randint(1, 10, (1,)))
-        self.b = nn.Parameter(torch.randint(1, 10, (1,)))
+        self.b = nn.Parameter(torch.randn(1000,1)
         self.W = nn.Parameter(torch.randn(1000,1000))
 
     def forward(self, x):
@@ -174,7 +174,7 @@ class ResEncoder(nn.Module):
             x = self.conv1(x)
         x = self.conv2(x)
         x = self.internal_model(x)
-        x = x + self.a * torch.exp(torch.mm(self.W, x) + self.b) # one neuron
+        x = x + self.a * torch.exp(torch.mm(self.W, x.view(-1,1)) + self.b) # one neuron
         return x.view(1, 1000)
 
 class MRIDecoder(nn.Module):
