@@ -247,7 +247,7 @@ if __name__ == "__main__":
     
     test_batch_size = 1000
     epochs = 10
-    lmbda = 0.5 # not sure what to do with this
+    lmbda = 0.01 # not sure what to do with this
 
     log_interval = 250
 
