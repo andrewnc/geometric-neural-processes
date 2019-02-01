@@ -312,6 +312,7 @@ if __name__ == "__main__":
 
             # this seems extremely inefficient
             for name, param in encoder.named_parameters():
+                print(name)
                 if name == "a":
                     loss = -log_p.mean() + lmbda * param**2 / 2
 
