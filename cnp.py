@@ -310,11 +310,6 @@ if __name__ == "__main__":
             
             log_p = get_log_p(target, mu, sigma)
 
-            # this seems extremely inefficient
-            for name, param in encoder.named_parameters():
-                if name == "module.a":
-                    
-
             loss = -log_p.mean() + lmbda * encoder.module.a**2 / 2
             loss.backward()
             optimizer.step()
