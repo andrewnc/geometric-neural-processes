@@ -174,11 +174,8 @@ class ResEncoder(nn.Module):
             x = self.conv1(x)
         x = self.conv2(x)
         x = self.internal_model(x)
-        print("input: ", x.shape)
-        exp_layer = self.a * torch.exp(torch.mm(self.W, x.view(1000,1)) + self.b)
-        print(exp_layer.shape)
-        x = x + exp_layer# one neuron
-        print("output: ", x.shape)
+        exp_layer = self.a * torch.exp(torch.mm(self.W, x.view(1000,1)) + self.b)# one neuron
+        x = x + exp_layer.view(1, 1000)
         return x.view(1, 1000)
 
 class MRIDecoder(nn.Module):
