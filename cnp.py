@@ -166,7 +166,7 @@ class ResEncoder(nn.Module):
         self.internal_model = resnet50()
         self.fc = nn.Linear(1000, 128)
         self.a = nn.Parameter(torch.randint(1, 10, (1,)))
-        self.b = nn.Parameter(torch.randn(1000,1)
+        self.b = nn.Parameter(torch.randn(1000,1))
         self.W = nn.Parameter(torch.randn(1000,1000))
 
     def forward(self, x):
