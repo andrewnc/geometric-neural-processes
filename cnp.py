@@ -166,6 +166,7 @@ class ResEncoder(nn.Module):
         self.internal_model = resnet50()
         self.fc = nn.Linear(1000, 128)
         self.a = nn.Parameter(torch.randn(1))
+        self.exponent = nn.Linear(1000,1000)
         self.b = nn.Parameter(torch.randn(1000,1))
         self.W = nn.Parameter(torch.randn(1000,1000))
 
@@ -174,7 +175,8 @@ class ResEncoder(nn.Module):
             x = self.conv1(x)
         x = self.conv2(x)
         x = self.internal_model(x)
-        exp_layer = self.a * torch.exp(torch.mm(self.W, x.view(1000,1)) + self.b)# one neuron
+        # exp_layer = self.a * torch.exp(torch.mm(self.W, x.view(1000,1)) + self.b)# one neuron
+        exp_layer = self.a *torch.exp(self.exponent(x))
         x = x + exp_layer.view(1, 1000)
         return x.view(1, 1000)
 
@@ -314,7 +316,7 @@ if __name__ == "__main__":
             loss.backward()
             optimizer.step()
             if batch_idx % log_interval == 0:
-                progress.set_description('{} - Loss: {:.6f} Mean: {:.6f}/{:.6f} Sig: {:.6f}/{:.6f}'.format(epoch, loss.item(), mu.max(), mu.min(), sigma.max(), sigma.min()))
+                progress.set_description('{} - Loss: {:.4f} Mean: {:.3f}/{:.3f} Sig: {:.3f}/{:.3f}'.format(epoch, loss.item(), mu.max(), mu.min(), sigma.max(), sigma.min()))
                 with open("encoder_mri.pkl", "wb") as of:
                     pickle.dump(encoder, of)
 
