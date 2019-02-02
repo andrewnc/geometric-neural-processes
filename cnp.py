@@ -36,7 +36,7 @@ from data.mri_data import SliceData
 
 
 m,n = 224,224 #28, 28
-batch_size = 1
+batch_size = 16
 
 use_cuda = True
 device = torch.device("cuda" if use_cuda else "cpu")
@@ -167,8 +167,6 @@ class ResEncoder(nn.Module):
         self.fc = nn.Linear(1000, 128)
         self.a = nn.Parameter(torch.randn(1))
         self.exponent = nn.Linear(1000,1000)
-        self.b = nn.Parameter(torch.randn(1000,1))
-        self.W = nn.Parameter(torch.randn(1000,1000))
 
     def forward(self, x):
         if(x.shape[1] == 1):
