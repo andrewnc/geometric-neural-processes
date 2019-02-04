@@ -165,7 +165,7 @@ class ResEncoder(nn.Module):
         self.conv2 = nn.Conv2d(2, 3, kernel_size=1)
         self.internal_model = resnet50()
         self.fc = nn.Linear(1000, 128)
-        self.a = nn.Parameter(torch.randn(1))
+        self.a = nn.Parameter(torch.rand(1)/100)
         self.exponent = nn.Linear(1000,1000)
 
     def forward(self, x):
@@ -247,9 +247,9 @@ if __name__ == "__main__":
     
     test_batch_size = 1000
     epochs = 10
-    lmbda = 0.01 # not sure what to do with this
+    lmbda = 0.001 # not sure what to do with this
 
-    log_interval = 250
+    log_interval = 50
 
 
     min_context_points = num_pixels * 0.05 # always have at least 5% of all pixels
