@@ -165,17 +165,16 @@ class ResEncoder(nn.Module):
         self.conv2 = nn.Conv2d(2, 3, kernel_size=1)
         self.internal_model = resnet50()
         self.fc = nn.Linear(1000, 128)
-        self.a = nn.Parameter(torch.rand(1)/100)
-        self.exponent = nn.Linear(1000,1000)
+        # self.a = nn.Parameter(torch.rand(1)/100)
+        # self.exponent = nn.Linear(1000,1000)
 
     def forward(self, x):
         if(x.shape[1] == 1):
             x = self.conv1(x)
         x = self.conv2(x)
         x = self.internal_model(x)
-        # exp_layer = self.a * torch.exp(torch.mm(self.W, x.view(1000,1)) + self.b)# one neuron
-        exp_layer = self.a *torch.exp(self.exponent(x))
-        x = x + exp_layer.view(1, 1000)
+        # exp_layer = self.a *torch.exp(self.exponent(x))
+        # x = x + exp_layer.view(1, 1000)
         return x.view(1, 1000)
 
 class MRIDecoder(nn.Module):
@@ -188,6 +187,8 @@ class MRIDecoder(nn.Module):
         self.fc2_5 = nn.Linear(256, 128)
         self.fc3 = nn.Linear(128, 64)
         self.fc4 = nn.Linear(64, 2)
+        self.a = nn.Parameter(torch.rand(1))
+        self.exponential_linear = nn.Linear(2,2)
         
     def forward(self, r):
         """r is the aggregated data used to condition"""
@@ -198,6 +199,8 @@ class MRIDecoder(nn.Module):
         
         h = self.fc4(F.relu(self.fc3(F.relu(self.fc2_5(F.relu(self.fc2(F.relu(self.fc1(x)))))))))
         
+        h = h + self.a * torch.exp(self.exponential_layer(h))
+
         mu_real = h[:,0]
         sigma_real = h[:,1]
         
@@ -310,7 +313,7 @@ if __name__ == "__main__":
             
             log_p = get_log_p(target, mu, sigma)
 
-            loss = -log_p.mean() + lmbda * encoder.module.a**2 / 2
+            loss = -log_p.mean() + lmbda * decoder.module.a**2 / 2
             loss.backward()
             optimizer.step()
             if batch_idx % log_interval == 0:
