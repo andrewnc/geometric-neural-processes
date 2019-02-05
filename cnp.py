@@ -35,7 +35,7 @@ from data import transforms
 from data.mri_data import SliceData
 
 
-m,n = 224,224 #28, 28
+m,n = 28,28 #28, 28
 batch_size = 1
 
 use_cuda = True
