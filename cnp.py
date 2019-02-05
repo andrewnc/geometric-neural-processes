@@ -163,14 +163,14 @@ class MRIEncoder(nn.Module):
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
         
-        self.fc = nn.Linear(1024, 1000)
+        self.fc = nn.Linear(256, 1000)
         
     def forward(self, x):
-        x = self.layer4(self.layer3(self.layer2(self.layer1(x))))
+        x = self.layer3(self.layer2(self.layer1(x)))
         x.transpose_(1, -1)
-        out = self.fc(x)
+        # out = self.fc(x)
         # out = torch.mean(out.view((128,out.shape[2]*m*n)), 1).view(1, 128) # reshape and aggregate (using the mean, which works because it is commutative)
-        return out.view(1, 1000)
+        return x.view(1, 256)
     
 class ResEncoder(nn.Module):
     def __init__(self):
@@ -197,25 +197,21 @@ class MRIDecoder(nn.Module):
         super(MRIDecoder, self).__init__()
         self.m = m
         self.n = n
-        self.fc1 = nn.Linear(1002, 512)
-        self.fc2 = nn.Linear(512, 256)
-        self.fc2_5 = nn.Linear(256, 128)
-        self.fc3 = nn.Linear(128, 64)
-        self.fc4 = nn.Linear(64, 2)
-        self.a = nn.Parameter(torch.rand(1))
-        self.exponential_linear = nn.Linear(2,2)
-        
+        # self.fc1 = nn.Linear(1002, 512)
+        # self.fc2 = nn.Linear(512, 256)
+        self.fc1 = nn.Linear(256, 128)
+        self.fc2 = nn.Linear(128, 64)
+        self.fc3 = nn.Linear(64, 2)
+ 
     def forward(self, r):
         """r is the aggregated data used to condition"""
         
         # we only take in r, because in this case x is all points in size of image (n, m)
         x = torch.tensor([[i, j] for i in range(0,self.m) for j in range(0,self.n)]).float().to(device)
-        x = torch.cat((x, r.view(1,-1).repeat(1,self.m*self.n).view(self.m*self.n,1000)), 1)
+        x = torch.cat((x, r.view(1,-1).repeat(1,self.m*self.n).view(self.m*self.n,256)), 1)
         
-        h = self.fc4(F.relu(self.fc3(F.relu(self.fc2_5(F.relu(self.fc2(F.relu(self.fc1(x)))))))))
+        h = self.fc3(F.relu(self.fc2(F.relu(self.fc1(x)))))
         
-        h = h + self.a * torch.exp(self.exponential_linear(h))
-
         mu_real = h[:,0]
         sigma_real = h[:,1]
         
@@ -265,7 +261,6 @@ if __name__ == "__main__":
     
     test_batch_size = 1000
     epochs = 10
-    lmbda = 0.01 # not sure what to do with this
 
     log_interval = 50
 
@@ -328,7 +323,7 @@ if __name__ == "__main__":
             
             log_p = get_log_p(target, mu, sigma)
 
-            loss = -log_p.mean() + lmbda * decoder.module.a**2 / 2
+            loss = -log_p.mean()
             loss.backward()
             optimizer.step()
             if batch_idx % log_interval == 0:
