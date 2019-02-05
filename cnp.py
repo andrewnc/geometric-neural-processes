@@ -155,7 +155,7 @@ class MRIEncoder(nn.Module):
         x = self.layer3(self.layer2(self.layer1(x)))
         x.transpose_(1, -1)
         out = self.fc(x)
-        out = torch.mean(out.view((128,out.shape[2]*38*38)), 1).view(1, 128) # reshape and aggregate (using the mean, which works because it is commutative)
+        out = torch.mean(out.view((128,out.shape[2]*m*n)), 1).view(1, 128) # reshape and aggregate (using the mean, which works because it is commutative)
         return out
     
 class ResEncoder(nn.Module):
@@ -259,8 +259,8 @@ if __name__ == "__main__":
     min_context_points = num_pixels * 0.05 # always have at least 5% of all pixels
     max_context_points = num_pixels * 0.95 # always have at most 95% of all pixels
 
-    # encoder = MRIEncoder().to(device)
-    encoder = ResEncoder().to(device)
+    encoder = MRIEncoder().to(device)
+    # encoder = ResEncoder().to(device)
     decoder = MRIDecoder(m, n).to(device)
 
     encoder = nn.DataParallel(encoder)
