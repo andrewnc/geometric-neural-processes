@@ -148,15 +148,29 @@ class MRIEncoder(nn.Module):
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
+
+        self.layer3 = nn.Sequential(
+            nn.Conv2d(256, 512, kernel_size=3, stride=1, padding=0),
+            nn.BatchNorm2d(512),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2)
+        )
+
+        self.layer3 = nn.Sequential(
+            nn.Conv2d(512, 1000, kernel_size=3, stride=1, padding=0),
+            nn.BatchNorm2d(1000),
+            nn.ReLU(),
+            nn.MaxPool2d(kernel_size=2, stride=2)
+        )
         
-        self.fc = nn.Linear(256, 128)
+        self.fc = nn.Linear(1000, 1000)
         
     def forward(self, x):
         x = self.layer3(self.layer2(self.layer1(x)))
         x.transpose_(1, -1)
         out = self.fc(x)
         # out = torch.mean(out.view((128,out.shape[2]*m*n)), 1).view(1, 128) # reshape and aggregate (using the mean, which works because it is commutative)
-        return out.view(1, 128)
+        return out.view(1, 1000)
     
 class ResEncoder(nn.Module):
     def __init__(self):
