@@ -166,7 +166,7 @@ class MRIEncoder(nn.Module):
         self.fc = nn.Linear(1024, 1000)
         
     def forward(self, x):
-        x = self.layer5(self.layer4(self.layer3(self.layer2(self.layer1(x)))))
+        x = self.layer4(self.layer3(self.layer2(self.layer1(x))))
         x.transpose_(1, -1)
         out = self.fc(x)
         # out = torch.mean(out.view((128,out.shape[2]*m*n)), 1).view(1, 128) # reshape and aggregate (using the mean, which works because it is commutative)
