@@ -155,8 +155,8 @@ class MRIEncoder(nn.Module):
         x = self.layer3(self.layer2(self.layer1(x)))
         x.transpose_(1, -1)
         out = self.fc(x)
-        out = torch.mean(out.view((128,out.shape[2]*m*n)), 1).view(1, 128) # reshape and aggregate (using the mean, which works because it is commutative)
-        return out
+        # out = torch.mean(out.view((128,out.shape[2]*m*n)), 1).view(1, 128) # reshape and aggregate (using the mean, which works because it is commutative)
+        return out.view(1, 128)
     
 class ResEncoder(nn.Module):
     def __init__(self):
