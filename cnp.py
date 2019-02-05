@@ -199,7 +199,7 @@ class MRIDecoder(nn.Module):
         self.n = n
         # self.fc1 = nn.Linear(1002, 512)
         # self.fc2 = nn.Linear(512, 256)
-        self.fc1 = nn.Linear(256, 128)
+        self.fc1 = nn.Linear(258, 128)
         self.fc2 = nn.Linear(128, 64)
         self.fc3 = nn.Linear(64, 2)
  
