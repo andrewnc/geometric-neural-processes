@@ -157,13 +157,13 @@ class MRIEncoder(nn.Module):
         )
 
         self.layer5 = nn.Sequential(
-            nn.Conv2d(512, 1000, kernel_size=3, stride=1, padding=0),
-            nn.BatchNorm2d(1000),
+            nn.Conv2d(512, 1024, kernel_size=3, stride=1, padding=0),
+            nn.BatchNorm2d(1024),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
         
-        self.fc = nn.Linear(1000, 1000)
+        self.fc = nn.Linear(1024, 1000)
         
     def forward(self, x):
         x = self.layer5(self.layer4(self.layer3(self.layer2(self.layer1(x)))))
