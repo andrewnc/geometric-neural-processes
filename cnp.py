@@ -149,14 +149,14 @@ class MRIEncoder(nn.Module):
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
 
-        self.layer3 = nn.Sequential(
+        self.layer4 = nn.Sequential(
             nn.Conv2d(256, 512, kernel_size=3, stride=1, padding=0),
             nn.BatchNorm2d(512),
             nn.ReLU(),
             nn.MaxPool2d(kernel_size=2, stride=2)
         )
 
-        self.layer3 = nn.Sequential(
+        self.layer5 = nn.Sequential(
             nn.Conv2d(512, 1000, kernel_size=3, stride=1, padding=0),
             nn.BatchNorm2d(1000),
             nn.ReLU(),
@@ -166,7 +166,7 @@ class MRIEncoder(nn.Module):
         self.fc = nn.Linear(1000, 1000)
         
     def forward(self, x):
-        x = self.layer3(self.layer2(self.layer1(x)))
+        x = self.layer5(self.layer4(self.layer3(self.layer2(self.layer1(x)))))
         x.transpose_(1, -1)
         out = self.fc(x)
         # out = torch.mean(out.view((128,out.shape[2]*m*n)), 1).view(1, 128) # reshape and aggregate (using the mean, which works because it is commutative)
