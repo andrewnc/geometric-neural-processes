@@ -172,6 +172,7 @@ class ResEncoder(nn.Module):
         if(x.shape[1] == 1):
             x = self.conv1(x)
         x = self.conv2(x)
+        print(x.shape)
         x = self.internal_model(x)
         # exp_layer = self.a *torch.exp(self.exponent(x))
         # x = x + exp_layer.view(1, 1000)
