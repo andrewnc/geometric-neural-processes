@@ -36,7 +36,7 @@ from data.mri_data import SliceData
 
 
 m,n = 224,224 #28, 28
-batch_size = 16
+batch_size = 8
 
 use_cuda = True
 device = torch.device("cuda" if use_cuda else "cpu")
@@ -250,7 +250,7 @@ if __name__ == "__main__":
     
     test_batch_size = 1000
     epochs = 10
-    lmbda = 0.001 # not sure what to do with this
+    lmbda = 0.01 # not sure what to do with this
 
     log_interval = 50
 
