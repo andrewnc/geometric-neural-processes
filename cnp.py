@@ -129,24 +129,24 @@ class MRIEncoder(nn.Module):
     def __init__(self):
         super(MRIEncoder, self).__init__()
         self.layer1 = nn.Sequential(
-            nn.Conv3d(2, 64, kernel_size=3, stride=1, padding=0),
-            nn.BatchNorm3d(64),
+            nn.Conv2d(2, 64, kernel_size=3, stride=1, padding=0),
+            nn.BatchNorm2d(64),
             nn.ReLU(),
-            nn.MaxPool3d(kernel_size=2, stride=2)
+            nn.MaxPool2d(kernel_size=2, stride=2)
         )
         
         self.layer2 = nn.Sequential(
-            nn.Conv3d(64, 128, kernel_size=3, stride=1, padding=0),
-            nn.BatchNorm3d(128),
+            nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=0),
+            nn.BatchNorm2d(128),
             nn.ReLU(),
-            nn.MaxPool3d(kernel_size=2, stride=2)
+            nn.MaxPool2d(kernel_size=2, stride=2)
         )
         
         self.layer3 = nn.Sequential(
-            nn.Conv3d(128, 256, kernel_size=3, stride=1, padding=0),
-            nn.BatchNorm3d(256),
+            nn.Conv2d(128, 256, kernel_size=3, stride=1, padding=0),
+            nn.BatchNorm2d(256),
             nn.ReLU(),
-            nn.MaxPool3d(kernel_size=2, stride=2)
+            nn.MaxPool2d(kernel_size=2, stride=2)
         )
         
         self.fc = nn.Linear(256, 128)
