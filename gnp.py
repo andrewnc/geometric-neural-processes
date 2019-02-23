@@ -71,7 +71,7 @@ class Decoder(nn.Module):
         self.fc1 = nn.Linear(280, 128)
         self.fc2 = nn.Linear(128, 64)
         self.fc3 = nn.Linear(64, 32)
-        self.fc4 = nn.Linear(32, 3)
+        self.fc4 = nn.Linear(32, 4)
         
     def forward(self, r, x):
         """r is the aggregated data used to condition"""
@@ -92,7 +92,7 @@ if __name__ == "__main__":
     results = []
 
     input_data_paths = os.listdir("./input_graph_datasets") # this is the list of all datasets we have
-    path = "AIDS.pkl"
+    path = "Tox21_ATAD5.pkl"
     
     #filter graphs min keyword will remove graphs with fewer nodes than the value passed in. Set this value equal to m (the slice size in utils.graph_to_tensor_feature_extractor)
     train, test = utils.get_data(path="./input_graph_datasets/" +path, filter_graphs_min=10) 

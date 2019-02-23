@@ -99,7 +99,7 @@ def draw_graph(G, title="", save=False):
         plt.show()
 
 def get_data(path='./mutag.pkl', train_size=.7, filter_graphs_min=None):
-    graphs = convert_to_network(load_dataset_from_pickle(path), filter_graphs_min=None)
+    graphs = convert_to_network(load_dataset_from_pickle(path), filter_graphs_min=filter_graphs_min)
     train, test = train_test_split(graphs, train_size=train_size)
     return train, test # lists of networkx graphs
 
