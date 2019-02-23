@@ -9,6 +9,8 @@ import scipy
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
 
+import supervised
+
 def load__dataset_from_pickle(path="./mutag.pkl"):
     """path (str): full path to MUTAG pickle file. EG /home/user/Downloads/mutag.pkl"""
     with open(path, "rb") as f:
@@ -265,6 +267,22 @@ def get_accuracy(y_hat, y, as_dict=False, acc=False):
         return classification_report(target, predicted, output_dict=as_dict), accuracy_score(target, predicted)
     else:
         return classification_report(target, predicted, output_dict=as_dict)
+
+def run_baselines(train, test, outfile_name="full_baseline"):
+    datum = {"rf_cr": [], "rf_acc": [], "random_cr": [], "random_acc": [], "common_cr": [], "common_acc": []}
+
+    rf_cr, rf_acc = supervised.train_rf(train, test)
+    random_cr, random_acc = supervised.train_random(train, test)
+    common_cr, common_acc = supervised.train_common(train, test)
+    datum['rf_cr'].append(rf_cr)
+    datum['rf_acc'].append(rf_acc)
+    datum['random_cr'].append(random_cr)
+    datum['random_acc'].append(random_acc)
+    datum['common_cr'].append(common_cr)
+    datum['common_acc'].append(common_acc)
+
+    with open("{}.pkl".format(outfile_name), "wb") as f:
+        pickle.dump(datum, f)
 
 if __name__ == "__main__":
     d = load_dataset_from_pickle()

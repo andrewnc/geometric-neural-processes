@@ -89,8 +89,11 @@ class Decoder(nn.Module):
 
 if __name__ == "__main__":
 
-    results = []    
+    results = []
 
+    input_data_paths = os.listdir("./input_graph_datasets") # this is the list of all datasets we have
+
+    # we can iterate over all of these datasets, I'm not convinced it will work
     train, test = utils.get_data(path='./mutag.pkl')
 
     min_context_percent = 0.4
@@ -204,10 +207,11 @@ if __name__ == "__main__":
         print("f1-score {}".format(np.mean(metrics["f1-score"])))
         print("accuracy {}".format(np.mean(metrics["accuracy"])))
 
-    #     rf_dict, rf_acc = train_rf(subsampled_train, test)
 
-    #     results.append({"gnp_cr":metrics, "gnp_acc":accuracy, "rf_cr":rf_dict, "rf_acc": rf_acc, "data_amount": data_amount})
-    
+        # ---------------- uncomment this one line below to run the baselines ------------------------ #
+        # here you can run utils.run_baselines(train, test, outfile_name) and it will dump a pkl file of the results
+    #     
+    #   results.append({"gnp_cr":metrics, "gnp_acc":accuracy})    
     # with open("results.pkl", "wb") as f:
     #     pickle.dump(results, f)
 
