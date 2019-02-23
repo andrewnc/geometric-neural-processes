@@ -10,6 +10,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 
+import networkx as nx
+
 from tqdm import tqdm
 
 import os
@@ -17,10 +19,8 @@ import os
 import time
 
 import utils
-
-
-m,n = 224,224 #28, 28
-batch_size = 1
+from layers import GraphConvolution
+from supervised import train_rf
 
 use_cuda = True
 device = torch.device("cuda" if use_cuda else "cpu")
@@ -38,8 +38,13 @@ class GraphEncoder(nn.Module):
     """we somehow need to use the idea of a graph convolution to gather local features"""
     def __init__(self):
         super(GraphEncoder, self).__init__()
-        pass
-    def forward(self, x):
+        self.gc1 = GraphConvolution(17, 17)
+        self.gc2 = GraphConvolution(17, 17)
+
+    def forward(self, x, adj):
+        x = F.relu(self.gc1(x, adj))
+        x = self.gc2(x, adj)
+        print(x.shape)
         return x
 
 class NonGraphEncoder(nn.Module):
@@ -47,10 +52,10 @@ class NonGraphEncoder(nn.Module):
     to infill these values. Also, are using the most naive value that you could imagine"""
     def __init__(self):
         super(NonGraphEncoder, self).__init__()
-        self.fc1 = nn.Linear(4, 16)
-        self.fc2 = nn.Linear(16, 32)
-        self.fc3 = nn.Linear(32, 64)
-        self.fc4 = nn.Linear(64, 128)
+        self.fc1 = nn.Linear(24, 32)
+        self.fc2 = nn.Linear(32, 64)
+        self.fc3 = nn.Linear(64, 128)
+        self.fc4 = nn.Linear(128, 256)
         
 
     def forward(self, x):
@@ -60,38 +65,35 @@ class NonGraphEncoder(nn.Module):
         return torch.mean(self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(x))))))), dim=0) # aggregate
 
 
-
-
 class Decoder(nn.Module):
     def __init__(self):
         super(Decoder, self).__init__()
-        self.fc1 = nn.Linear(132, 64) # 128 vector with 4 features, see NonGraphEncoder.forward doc strings
-        self.fc2 = nn.Linear(64, 32)
-        self.fc3 = nn.Linear(32, 1)
+        self.fc1 = nn.Linear(280, 128)
+        self.fc2 = nn.Linear(128, 64)
+        self.fc3 = nn.Linear(64, 32)
+        self.fc4 = nn.Linear(32, 4)
         
-    def forward(self, r, G):
+    def forward(self, r, x):
         """r is the aggregated data used to condition"""
-        # we need to take in G in this case because we need to feed in the node values to the decoder
+        # we need to take in G (as x value) in this case because we need to feed in the node values to the decoder
         # we must be very careful not to give data to the decoder that is supposed to be masked
-        x = []
-        for edge in G.edges:
-            node1, node2 = edge
-            node1_val, node2_val = G.nodes[node1]['node_value'], G.nodes[node2]['node_value']
-            node1_degree, node2_degree = G.degree[node1], G.degree[node2]
-            x.append([node1_val, node2_val, node1_degree, node2_degree])
+        
+        n = x.shape[0] # number of edges
 
-        x = torch.tensor(x)
+        out = torch.cat((x, r.view(1,-1).repeat(1,n).view(n,256)), 1)
         
-        # I might not need the "view" portion of this first
-        x = torch.cat((x, r.view(1,-1).repeat(1,len(G.edges)).view(len(G.edges),128)), 1)
+        h = self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(out)))))))
         
-        h = self.fc4(F.relu(self.fc3(F.relu(self.fc2_5(F.relu(self.fc2(F.relu(self.fc1(x)))))))))
-        
-        return h # this should be [n_context x 1]
+        return h # this should be [n_edges x 4]
 
 
 if __name__ == "__main__":
-    min_context_percent = 0.1
+
+    results = []    
+
+    train, test = utils.get_data(path='./mutag.pkl')
+
+    min_context_percent = 0.4
     max_context_percent = 0.9
 
     epochs = 10
@@ -99,95 +101,114 @@ if __name__ == "__main__":
     log_interval = 50
 
     encoder = NonGraphEncoder().to(device)
+    # encoder = GraphEncoder().to(device)
     decoder = Decoder().to(device)
 
     optimizer = optim.Adam(list(encoder.parameters()) + list(decoder.parameters()))
-    train, test = utils.get_data(path='./mutag.pkl')
+    # loss = nn.CrossEntropyLoss(weight=torch.tensor([1/2000, 1/1000, 1/300, 1/10]).float().to(device))
+    loss = nn.CrossEntropyLoss()
+
+    # subsampled_train = train[:data_amount] # subsample to compare
+    
 
     for epoch in range(1, epochs+1):
         encoder.train()
         decoder.train()
 
+        np.random.shuffle(train) # change the order of the training data
+
         progress = tqdm(enumerate(train))
 
+        total_loss = 0
+        total_p, total_r, total_f1, total_acc = 0,0,0,0
+        count = 0
         for i, graph in progress:
+            full_loss =0 
 
-            sparse_graph = utils.sparsely_observe_graph(graph, min_context_percent, max_context_percent)
+            for j in range(50):
 
-            
+                sparse_graph = utils.sparsely_observe_graph(graph, min_context_percent, max_context_percent)
 
-            target = graph
+                # this acts as the feature extractor from graph to data...
+                data = utils.graph_to_tensor_feature_extractor(sparse_graph)
+                target, graph_edge = utils.graph_to_tensor_feature_extractor(graph, target=True)
 
-            optimizer.zero_grad()
-
-            data = data.to(device)
-            target = target.to(device)
-            
-            # run the model to get r
-            r = encoder(data)
-            edges = decoder(r)
-
-            print(edges)
-
-
-            ## we need to reconstruct the graph
-            log_p = get_log_p(target, mu, sigma)
-
-            loss = -log_p.mean()
-            loss.backward()
-            optimizer.step()
-
-            if i % log_interval == 0:
-                progress.set_description('{} - Loss: {:.4f} Mean: {:.3f}/{:.3f} Sig: {:.3f}/{:.3f}'.format(epoch, loss.item(), mu.max(), mu.min(), sigma.max(), sigma.min()))
-                with open("encoder_graph.pkl", "wb") as of:
-                    pickle.dump(encoder, of)
-
-                with open("encoder_graph.pkl", "wb") as of:
-                    pickle.dump(decoder, of)
-
-                with open("optim.pkl", "wb") as of:
-                    pickle.dump(optimizer, of)
-
-        encoder.eval()
-        decoder.eval()
-        with torch.no_grad():
-            for i, data in enumerate(test_x):
-
-                target = test_y[i]
+                optimizer.zero_grad()
 
                 data = data.to(device)
                 target = target.to(device)
-
+                graph_edge = graph_edge.to(device)
+                
+                # run the model to get r which will be concatenated onto every node pair in the decoder
                 r = encoder(data)
 
-                mu, sigma = decoder(r)
+                edges = decoder(r, target) # yes, it takes in the target, but doesn't use any edge values from the target
 
-                try:
-                    mu = mu.view(batch_size, m, n)
-                    sigma = sigma.view(batch_size, m,n)
-                except Exception as e:
-                    print("could not resize")
-                    print(e)
-                    continue
+                approximate_graph = utils.reconstruct_graph(edges, graph)
+
+                loss_val = loss(edges.float(), graph_edge.long())
+
+                total_loss += loss_val.item()
+                count += 1
+                acc, out_acc = utils.get_accuracy(edges, graph_edge, as_dict=True, acc=True)
+                total_p += acc['weighted avg']['precision'] 
+                total_r += acc['weighted avg']['recall']
+                total_f1 += acc['weighted avg']['f1-score']
+                total_acc += out_acc
+                loss_val.backward()
+            optimizer.step()
+            
+            with open("encoder_graph.pkl", "wb") as of:
+                progress.set_description('E:{} - Loss: {:.4f} P: {:.4f} R: {:.4f} F1: {:.4f} A: {:.4f}'.format(epoch, total_loss/count, total_p/count, total_r/count, total_f1/count, total_acc/count))
+                pickle.dump(encoder, of)
+
+            with open("encoder_graph.pkl", "wb") as of:
+                pickle.dump(decoder, of)
+
+            with open("optim.pkl", "wb") as of:
+                pickle.dump(optimizer, of)
+
+    encoder.eval()
+    decoder.eval()
+    with torch.no_grad():
+
+        metrics = {"precision": [],"recall": [],"f1-score":[], "accuracy": []}
+        for i, graph in enumerate(test):
+
+            
+            sparse_graph = utils.sparsely_observe_graph(graph, .75, .9)
+            data = utils.graph_to_tensor_feature_extractor(sparse_graph)
+
+            target, graph_edge = utils.graph_to_tensor_feature_extractor(graph, target=True)
+
+            data = data.to(device)
+            target = target.to(device)
+
+            r = encoder(data)
+
+            edges = decoder(r, target)
+
+            # approximate_graph = utils.reconstruct_graph(edges, graph)
+            classification_report, accuracy = utils.get_accuracy(edges, graph_edge, as_dict = True, acc=True)
+
+            metrics['precision'].append(classification_report['weighted avg']['precision']) 
+            metrics['recall'].append(classification_report['weighted avg']['recall']) 
+            metrics['f1-score'].append(classification_report['weighted avg']['f1-score'])
+            metrics['accuracy'].append(accuracy)
 
 
-                try:
-                    plt.imsave("{}target{}.png".format(epoch, i), target[0].detach().view(m,n))
+            # utils.draw_graph(graph, title="{}target{}.png".format(data_amount, i), save=True)
+            # utils.draw_graph(approximate_graph, title="{}reconstruction{}.png".format(data_amount, i), save=True)
+        print("precision {}".format(np.mean(metrics["precision"])))
+        print("recall {}".format(np.mean(metrics["recall"])))
+        print("f1-score {}".format(np.mean(metrics["f1-score"])))
+        print("accuracy {}".format(np.mean(metrics["accuracy"])))
 
-                except Exception as e:
-                    print("could not save first target")
-                    print(e)
+    #     rf_dict, rf_acc = train_rf(subsampled_train, test)
 
-                try:
-                    data = data.transpose(1,2).transpose(2, 3)
-                    plt.imsave("{}masked_data{}.png".format(epoch, i), slice_and_dice(data[0][:,:,0]))
-                except Exception as e:
-                    print("could not transpose, or slice and dice first")
-                    print(e)
+    #     results.append({"gnp_cr":metrics, "gnp_acc":accuracy, "rf_cr":rf_dict, "rf_acc": rf_acc, "data_amount": data_amount})
+    
+    # with open("results.pkl", "wb") as f:
+    #     pickle.dump(results, f)
 
-                try:
-                    plt.imsave("{}mean{}.png".format(epoch, i), mu[0].detach())
-                    plt.imsave("{}var{}.png".format(epoch, i), sigma[0].detach())
-                except Exception as e:
-                    print("could not save mean or var first")
-                    print(e)
+
