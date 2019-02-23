@@ -208,7 +208,7 @@ def graph_to_tensor_feature_extractor(G, target=False):
 
 
     N = A.shape[0]
-    diags = A.sum(axis=1)**(1/2)
+    diags = A.sum(axis=1)**(1/2) # using the negative sqrt doesn't work with zero values, it completely breaks, but seems to be fine with positive. Very strange.
     D = scipy.sparse.spdiags(diags.flatten(), [0], N, N, format='csr').toarray()
     
     L = np.eye(N) - D.dot(A).dot(D) # calculate normalized graph laplacian
@@ -222,7 +222,7 @@ def graph_to_tensor_feature_extractor(G, target=False):
         ind1, ind2 = g_nodes.index(node1), g_nodes.index(node2)
         node1_val, node2_val = G.nodes[node1]['node_value'], G.nodes[node2]['node_value']
         node1_degree, node2_degree = G.degree[node1], G.degree[node2]
-        eigs1, eigs2 = vec[ind1][-m:], vec[ind2][-m:]
+        eigs1, eigs2 = vec[ind1][-m:], vec[ind2][-m:] # I was messing around with this, it currently takes the smallest, the previous experiments were run with [m:].
         features = [node1_val, node2_val, node1_degree, node2_degree]
         features.extend(eigs1)
         features.extend(eigs2)

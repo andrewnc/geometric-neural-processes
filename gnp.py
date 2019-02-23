@@ -211,9 +211,10 @@ if __name__ == "__main__":
 
         # ---------------- uncomment this one line below to run the baselines ------------------------ #
         utils.run_baselines(train, test, outfile_name="{}full_baseline".format(path))
-    #     
+    
     results.append({"gnp_cr":metrics, "gnp_acc":accuracy})    
     with open("{}results.pkl".format(path), "wb") as f:
         pickle.dump(results, f)
 
+    # I have a seperate visualization pipeline. If we have the results, then I can do that and get pretty plots. 
 
