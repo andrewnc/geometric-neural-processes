@@ -9,7 +9,7 @@ import scipy
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
 
-def load_mutag_dataset_from_pickle(path="./mutag.pkl"):
+def load__dataset_from_pickle(path="./mutag.pkl"):
     """path (str): full path to MUTAG pickle file. EG /home/user/Downloads/mutag.pkl"""
     with open(path, "rb") as f:
         d = pickle.load(f)
@@ -53,8 +53,8 @@ def draw_graph(G, title="", save=False):
     else:
         plt.show()
 
-def get_data(path='./mutag.pkl', train_size=.9):
-    graphs = convert_to_network(load_mutag_dataset_from_pickle())
+def get_data(path='./mutag.pkl', train_size=.7):
+    graphs = convert_to_network(load__dataset_from_pickle(path))
     train, test = train_test_split(graphs, train_size=train_size)
     return train, test # lists of networkx graphs
 
@@ -267,7 +267,7 @@ def get_accuracy(y_hat, y, as_dict=False, acc=False):
         return classification_report(target, predicted, output_dict=as_dict)
 
 if __name__ == "__main__":
-    d = load_mutag_dataset_from_pickle()
+    d = load_dataset_from_pickle()
     graphs = convert_to_network(d)
 
     G = graphs[90]
