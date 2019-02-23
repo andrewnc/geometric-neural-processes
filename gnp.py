@@ -71,7 +71,7 @@ class Decoder(nn.Module):
         self.fc1 = nn.Linear(280, 128)
         self.fc2 = nn.Linear(128, 64)
         self.fc3 = nn.Linear(64, 32)
-        self.fc4 = nn.Linear(32, 4)
+        self.fc4 = nn.Linear(32, 3)
         
     def forward(self, r, x):
         """r is the aggregated data used to condition"""
@@ -92,9 +92,10 @@ if __name__ == "__main__":
     results = []
 
     input_data_paths = os.listdir("./input_graph_datasets") # this is the list of all datasets we have
-
-    # we can iterate over all of these datasets, I'm not convinced it will work
-    train, test = utils.get_data(path='./mutag.pkl')
+    path = "AIDS.pkl"
+    
+    #filter graphs min keyword will remove graphs with fewer nodes than the value passed in. Set this value equal to m (the slice size in utils.graph_to_tensor_feature_extractor)
+    train, test = utils.get_data(path="./input_graph_datasets/" +path, filter_graphs_min=10) 
 
     min_context_percent = 0.4
     max_context_percent = 0.9
@@ -209,10 +210,10 @@ if __name__ == "__main__":
 
 
         # ---------------- uncomment this one line below to run the baselines ------------------------ #
-        # here you can run utils.run_baselines(train, test, outfile_name) and it will dump a pkl file of the results
+        utils.run_baselines(train, test, outfile_name="{}full_baseline".format(path))
     #     
-    #   results.append({"gnp_cr":metrics, "gnp_acc":accuracy})    
-    # with open("results.pkl", "wb") as f:
-    #     pickle.dump(results, f)
+    results.append({"gnp_cr":metrics, "gnp_acc":accuracy})    
+    with open("{}results.pkl".format(path), "wb") as f:
+        pickle.dump(results, f)
 
 

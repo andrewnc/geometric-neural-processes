@@ -11,13 +11,13 @@ from sklearn.metrics import classification_report, accuracy_score
 
 import supervised
 
-def load__dataset_from_pickle(path="./mutag.pkl"):
+def load_dataset_from_pickle(path="./mutag.pkl"):
     """path (str): full path to MUTAG pickle file. EG /home/user/Downloads/mutag.pkl"""
     with open(path, "rb") as f:
         d = pickle.load(f)
     return d
 
-def convert_to_network(d):
+def convert_to_network(d, filter_graphs_min=10):
     """d (sklearn.utils.Bunch) dataset loaded from pkl with keys data, target"""
     graphs = []
     for item in d.data:
@@ -28,7 +28,45 @@ def convert_to_network(d):
         G = nx.Graph(list(item[0]))
         nx.set_node_attributes(G, item[1], "node_value")
         nx.set_edge_attributes(G, item[2], "edge_value")
+
+        if len(G.nodes) < filter_graphs_min:
+            continue
+
         graphs.append(G)
+
+    min_edge_value = np.inf
+    max_edge_value = -np.inf
+    min_num_nodes = np.inf
+    max_num_nodes = -np.inf
+    min_node_value = np.inf 
+    max_node_value = -np.inf
+    for graph in graphs:
+        edge_values = list(nx.get_edge_attributes(graph, 'edge_value').values())
+        node_values = list(nx.get_node_attributes(graph, 'node_value').values())
+        num_nodes = len(graph.nodes)
+
+
+        if min(edge_values) < min_edge_value:
+            min_edge_value = min(edge_values)
+        
+        if max(edge_values) > max_edge_value:
+            max_edge_value = max(edge_values)
+
+        if num_nodes < min_num_nodes:
+            min_num_nodes = num_nodes
+        
+        if num_nodes > max_num_nodes:
+            max_num_nodes = num_nodes
+
+        if min(node_values) < min_node_value:
+            min_node_value = min(node_values)
+        
+        if max(node_values) > max_node_value:
+            max_node_value = max(node_values)
+
+    print("total graphs loaded {}".format(len(graphs)))
+    print("smallest edge value {}\nlargets edge value {}\nsmallest node value {}\nlargest node value {}\nsmallest number nodes {}\nlargest number nodes {}"
+        .format(min_edge_value, max_edge_value, min_node_value, max_node_value, min_num_nodes, max_num_nodes))
     return graphs
 
 def draw_graph(G, title="", save=False):
@@ -55,8 +93,8 @@ def draw_graph(G, title="", save=False):
     else:
         plt.show()
 
-def get_data(path='./mutag.pkl', train_size=.7):
-    graphs = convert_to_network(load__dataset_from_pickle(path))
+def get_data(path='./mutag.pkl', train_size=.7, filter_graphs_min=10):
+    graphs = convert_to_network(load_dataset_from_pickle(path), filter_graphs_min=10)
     train, test = train_test_split(graphs, train_size=train_size)
     return train, test # lists of networkx graphs
 
@@ -164,7 +202,10 @@ def graph_to_tensor_feature_extractor(G, target=False):
     outputs - 
     T (torch.Tensor) - tensor of shape #unknown n_edges x [node1_val, node2_val, node1_degree, node2_degree]
     """
+
+    m = 10
     A = nx.adjacency_matrix(G).toarray()
+
 
     N = A.shape[0]
     diags = A.sum(axis=1)**(1/2)
@@ -181,7 +222,7 @@ def graph_to_tensor_feature_extractor(G, target=False):
         ind1, ind2 = g_nodes.index(node1), g_nodes.index(node2)
         node1_val, node2_val = G.nodes[node1]['node_value'], G.nodes[node2]['node_value']
         node1_degree, node2_degree = G.degree[node1], G.degree[node2]
-        eigs1, eigs2 = vec[ind1][:10], vec[ind2][:10]
+        eigs1, eigs2 = vec[ind1][-m:], vec[ind2][-m:]
         features = [node1_val, node2_val, node1_degree, node2_degree]
         features.extend(eigs1)
         features.extend(eigs2)
