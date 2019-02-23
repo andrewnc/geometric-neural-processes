@@ -17,7 +17,7 @@ def load_dataset_from_pickle(path="./mutag.pkl"):
         d = pickle.load(f)
     return d
 
-def convert_to_network(d, filter_graphs_min=10):
+def convert_to_network(d, filter_graphs_min=None):
     """d (sklearn.utils.Bunch) dataset loaded from pkl with keys data, target"""
     graphs = []
     for item in d.data:
@@ -29,8 +29,9 @@ def convert_to_network(d, filter_graphs_min=10):
         nx.set_node_attributes(G, item[1], "node_value")
         nx.set_edge_attributes(G, item[2], "edge_value")
 
-        if len(G.nodes) < filter_graphs_min:
-            continue
+        if filter_graphs_min is not None:
+            if len(G.nodes) < filter_graphs_min:
+                continue
 
         graphs.append(G)
 
@@ -45,6 +46,10 @@ def convert_to_network(d, filter_graphs_min=10):
         node_values = list(nx.get_node_attributes(graph, 'node_value').values())
         num_nodes = len(graph.nodes)
 
+        if len(edge_values) == 0:
+            continue
+        if len(node_values) == 0:
+            continue
 
         if min(edge_values) < min_edge_value:
             min_edge_value = min(edge_values)
@@ -93,8 +98,8 @@ def draw_graph(G, title="", save=False):
     else:
         plt.show()
 
-def get_data(path='./mutag.pkl', train_size=.7, filter_graphs_min=10):
-    graphs = convert_to_network(load_dataset_from_pickle(path), filter_graphs_min=10)
+def get_data(path='./mutag.pkl', train_size=.7, filter_graphs_min=None):
+    graphs = convert_to_network(load_dataset_from_pickle(path), filter_graphs_min=None)
     train, test = train_test_split(graphs, train_size=train_size)
     return train, test # lists of networkx graphs
 
