@@ -86,10 +86,11 @@ if __name__ == "__main__":
     m, n = 28, 28
     num_pixels = m*n
 
-    min_context_points = num_pixels * 0.05 # always have at least 5% of all pixels
+    min_context_points = num_pixels * 0.15 # always have at least 15% of all pixels
     max_context_points = num_pixels * 0.95 # always have at most 95% of all pixels
 
-    kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
+    # kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
+    kwargs = {}
 
     train_loader = torch.utils.data.DataLoader(
         datasets.MNIST('../data', train=True, download=True,
@@ -112,6 +113,9 @@ if __name__ == "__main__":
 
     encoder = Encoder().to(device)
     decoder = Decoder(m, n).to(device)
+
+    encoder = nn.DataParallel(encoder)
+    decoder = nn.DataParallel(decoder)
 
     optimizer = optim.Adam(list(encoder.parameters()) + list(decoder.parameters()))
 
@@ -148,6 +152,9 @@ if __name__ == "__main__":
             loss.backward()
             optimizer.step()
             progress.set_description('E:{} - Loss: {:.4f}'.format(epoch, total_loss/count))
+
+            if i >= 1000:
+                break
         
         # with open("encoder_mnist.pkl", "wb") as of:
         #     pickle.dump(encoder, of)
