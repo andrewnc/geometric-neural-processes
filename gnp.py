@@ -92,7 +92,7 @@ if __name__ == "__main__":
     results = []
 
     input_data_paths = os.listdir("./input_graph_datasets") # this is the list of all datasets we have
-    path = "Tox21_ATAD5.pkl"
+    path = "mutag.pkl"
     
     #filter graphs min keyword will remove graphs with fewer nodes than the value passed in. Set this value equal to m (the slice size in utils.graph_to_tensor_feature_extractor)
     train, test = utils.get_data(path="./input_graph_datasets/" +path, filter_graphs_min=10) 
@@ -160,7 +160,7 @@ if __name__ == "__main__":
                 total_f1 += acc['weighted avg']['f1-score']
                 total_acc += out_acc
                 loss_val.backward()
-            optimizer.step()
+                optimizer.step()
             
             with open("encoder_graph.pkl", "wb") as of:
                 progress.set_description('E:{} - Loss: {:.4f} P: {:.4f} R: {:.4f} F1: {:.4f} A: {:.4f}'.format(epoch, total_loss/count, total_p/count, total_r/count, total_f1/count, total_acc/count))

@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import pickle
 import torch
+import math
 
 import scipy
 
@@ -162,6 +163,26 @@ def sparsely_observe_graph(G, min_context_percent, max_context_percent):
 
     return out_G
 
+def get_mnist_context_points(data, context_points=100):
+    
+    mask = np.zeros_like(data)
+    
+    n,m = mask.shape
+    mask = mask.reshape(-1)
+
+    mask[:context_points] = 1
+    np.random.shuffle(mask)
+
+    mask = mask.reshape(n,m)
+    
+    data = np.array(data.tolist())
+
+    data[mask != 1] = 0
+
+    data = torch.tensor(data)
+    
+    return data
+
 def graph_neighbor_feature_extractor(G, target=False):
     """
     parameters - 
@@ -289,10 +310,16 @@ def reconstruct_graph(edges, graph, return_tensor=False):
     else:
         return approximate_graph
 
+
+
+def get_log_p(data, mu, sigma):
+    return -torch.log(torch.sqrt(2*math.pi*sigma**2)) - (data - mu)**2/(2*sigma**2)
+
+    
 def softmax(x):
     """Compute softmax values for each sets of scores in x."""
-    e_x = np.exp(x - np.max(x))
-    return e_x / e_x.sum(axis=0)
+    e_x = np.exp(x - np.max(x, axis=1, keepdims=True))
+    return e_x / e_x.sum(axis=1,keepdims=True)
 
 def distance_metric(G1, G2):
     """get the distance between two graphs, using the value of the edges, assuming node values are the same"""

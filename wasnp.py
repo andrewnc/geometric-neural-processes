@@ -149,49 +149,57 @@ if __name__ == "__main__":
             optimizer.step()
             progress.set_description('E:{} - Loss: {:.4f}'.format(epoch, total_loss/count))
         
-        with open("encoder_mnist.pkl", "wb") as of:
-            pickle.dump(encoder, of)
+        # with open("encoder_mnist.pkl", "wb") as of:
+        #     pickle.dump(encoder, of)
 
-        with open("encoder_mnist.pkl", "wb") as of:
-            pickle.dump(decoder, of)
+        # with open("encoder_mnist.pkl", "wb") as of:
+        #     pickle.dump(decoder, of)
 
-        with open("optim.pkl", "wb") as of:
-            pickle.dump(optimizer, of)
+        # with open("optim.pkl", "wb") as of:
+        #     pickle.dump(optimizer, of)
 
-    encoder.eval()
-    decoder.eval()
-    with torch.no_grad():
+        encoder.eval()
+        decoder.eval()
+        with torch.no_grad():
 
-        for i, (ground_truth_image, target) in enumerate(train_loader):
-            ground_truth_image = ground_truth_image.view(28, 28)
+            for i, (ground_truth_image, target) in enumerate(train_loader):
+                ground_truth_image = ground_truth_image.view(28, 28)
 
-            data = utils.get_mnist_context_points(ground_truth_image, context_points=400)
+                data = utils.get_mnist_context_points(ground_truth_image, context_points=400)
 
-            
-            data = data.to(device)
+                
+                data = data.to(device)
 
-            r = encoder(data)
+                r = encoder(data)
 
-            mu, sigma = decoder(r)
+                mu, sigma = decoder(r)
 
 
-            plt.imshow(cntx.reshape(m,n), cmap='gray')
-            plt.axis("off")
-            plt.show()
+                plt.imshow(data.reshape(m,n), cmap='gray')
+                plt.axis("off")
+                plt.title("context points")
+                plt.savefig("{}context_points{}.png".format(epoch, i), dpi=300)
+                plt.close()
 
-            plt.imshow(data.reshape(m,n), cmap='gray')
-            plt.axis("off")
-            plt.show()
+                plt.imshow(ground_truth_image.reshape(m,n), cmap='gray')
+                plt.axis("off")
+                plt.title("ground truth")
+                plt.savefig("{}ground_truth{}.png".format(epoch, i), dpi=300)
+                plt.close()
 
-            plt.imshow(mu.detach().reshape(m,n), cmap='gray')
-            plt.axis("off")
-            plt.title("mean")
-            plt.show()
+                plt.imshow(mu.detach().reshape(m,n), cmap='gray')
+                plt.axis("off")
+                plt.title("mean")
+                plt.savefig("{}mean{}.png".format(epoch, i), dpi=300)
+                plt.close()
 
-            plt.imshow(sigma.detach().reshape(m, n), cmap='gray')
-            plt.axis("off")
-            plt.title("variance")
-            plt.show()
-            break
+                plt.imshow(sigma.detach().reshape(m, n), cmap='gray')
+                plt.axis("off")
+                plt.title("variance")
+                plt.savefig("{}var{}.png".format(epoch, i), dpi=300)
+                plt.close()
+
+                if i >= 10:
+                    break
 
 
