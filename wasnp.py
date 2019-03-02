@@ -14,6 +14,7 @@ import networkx as nx
 from tqdm import tqdm
 
 import os
+import gc
 
 import utils
 
@@ -35,21 +36,14 @@ class Encoder(nn.Module):
         """x = sparsely sampled image
         this returns the aggregated r value
         """
-        cntx = data.nonzero()
-        x_points = cntx[:,0]
-        y_points = cntx[:,1]
-        
-        intensities = x[x_points, y_points]
-        
-        output = torch.empty((intensities.shape[0], 128)).to(device)
 
-        intensities = torch.stack((x_points.float(), y_points.float(), intensities.float()))
-        intensities.transpose_(0,1)
+        # output = torch.empty((x.shape[0], 128)).to(device)
 
+        # for i, val in enumerate(x):
+        #     output[i] = self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(val)))))))
 
-        for i, val in enumerate(intensities):
-            output[i] = self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(val)))))))
-            
+        output = self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(x)))))))
+
         return output.mean(0).view(1, 128)
 
 class Decoder(nn.Module):
@@ -72,7 +66,7 @@ class Decoder(nn.Module):
 
         mu = h[:,0]
         log_sigma = h[:,1]
-        
+
         # bound the variance
         sigma = 0.1 + 0.9 * F.softplus(log_sigma)
         
@@ -81,7 +75,7 @@ class Decoder(nn.Module):
 if __name__ == "__main__":
 
     batch_size=1
-    test_batch_size=1000
+    test_batch_size=1
 
     m, n = 28, 28
     num_pixels = m*n
@@ -89,49 +83,57 @@ if __name__ == "__main__":
     min_context_points = num_pixels * 0.15 # always have at least 15% of all pixels
     max_context_points = num_pixels * 0.95 # always have at most 95% of all pixels
 
-    # kwargs = {'num_workers': 1, 'pin_memory': True} if use_cuda else {}
-    kwargs = {}
+    normalizer = transforms.Normalize((0.1307,), (0.3081,))
+
+    # train_loader = normalizer(torch.load("../data/processed/training.pt")[0].float())
+    # test_loader = normalizer(torch.load("../data/processed/test.pt")[0].float())
+
+
+    kwargs = {'num_workers': 1, 'pin_memory': False} if use_cuda else {}
+    # kwargs = {}
 
     train_loader = torch.utils.data.DataLoader(
         datasets.MNIST('../data', train=True, download=True,
-                       transform=transforms.Compose([
-                           transforms.ToTensor(),
-                           transforms.Normalize((0.1307,), (0.3081,)),
-                       ])),
+                    transform=transforms.Compose([
+                        transforms.ToTensor(),
+                        transforms.Normalize((0.1307,), (0.3081,)),
+                    ])),
         batch_size=batch_size, shuffle=True, **kwargs)
 
 
     test_loader = torch.utils.data.DataLoader(
         datasets.MNIST('../data', train=False, transform=transforms.Compose([
-                           transforms.ToTensor(),
-                           transforms.Normalize((0.1307,), (0.3081,)),
-                       ])),
+                        transforms.ToTensor(),
+                        transforms.Normalize((0.1307,), (0.3081,)),
+                    ])),
         batch_size=test_batch_size, shuffle=True, **kwargs)
 
     epochs = 10
     log_interval = 50
+    learning_rate = 0.1
 
     encoder = Encoder().to(device)
     decoder = Decoder(m, n).to(device)
 
-    encoder = nn.DataParallel(encoder)
-    decoder = nn.DataParallel(decoder)
-
     optimizer = optim.Adam(list(encoder.parameters()) + list(decoder.parameters()))
+    
+    # scheduler = utils.CyclicLR(optimizer, base_lr=0.1, max_lr=3, step_size=5000) # step size should be larger, about 2 - 8 x |training iterations per epoch|
 
+    
     for epoch in range(1, epochs+1):
         encoder.train()
         decoder.train()
 
-        progress = tqdm(enumerate(train_loader))
+        progress = tqdm(train_loader)
 
         total_loss = 0
         count = 0
-        for i, (ground_truth_image, target) in progress: # we don't use target, because this is more unsupervised
+        for (ground_truth_image, target) in progress:
             ground_truth_image = ground_truth_image.view(28, 28)
 
-            data = utils.get_mnist_context_points(ground_truth_image, context_points=np.random.randint(min_context_points, max_context_points))
+            sparse_data = utils.get_mnist_context_points(ground_truth_image, context_points=np.random.randint(min_context_points, max_context_points)).float().to(device)
 
+            data = utils.get_mnist_features(sparse_data)
             optimizer.zero_grad()
 
             data = data.to(device).float()
@@ -144,7 +146,7 @@ if __name__ == "__main__":
             mu = mu.view(m,n)
             sigma = sigma.view(m,n)
 
-            loss = -utils.get_log_p(data, mu, sigma).mean()
+            loss = -utils.get_log_p(sparse_data, mu, sigma).mean()
 
             total_loss += loss
             count += 1
@@ -153,9 +155,6 @@ if __name__ == "__main__":
             optimizer.step()
             progress.set_description('E:{} - Loss: {:.4f}'.format(epoch, total_loss/count))
 
-            if i >= 1000:
-                break
-        
         # with open("encoder_mnist.pkl", "wb") as of:
         #     pickle.dump(encoder, of)
 
@@ -169,44 +168,30 @@ if __name__ == "__main__":
         decoder.eval()
         with torch.no_grad():
 
-            for i, (ground_truth_image, target) in enumerate(train_loader):
+            for i, (ground_truth_image, target) in enumerate(test_loader):
                 ground_truth_image = ground_truth_image.view(28, 28)
 
-                data = utils.get_mnist_context_points(ground_truth_image, context_points=400)
+                sparse_data = utils.get_mnist_context_points(ground_truth_image, context_points=400).float().to(device)
 
-                
-                data = data.to(device)
+                data = utils.get_mnist_features(sparse_data)
+                data = data.to(device).float()
 
                 r = encoder(data)
 
                 mu, sigma = decoder(r)
 
 
-                plt.imshow(data.reshape(m,n), cmap='gray')
-                plt.axis("off")
-                plt.title("context points")
-                plt.savefig("{}context_points{}.png".format(epoch, i), dpi=300)
-                plt.close()
+                #plt.imshow(sparse_data.reshape(m,n), cmap='gray')
+                plt.imsave("{}context_points{}.png".format(epoch, i), sparse_data.reshape(m,n), dpi=300)
 
-                plt.imshow(ground_truth_image.reshape(m,n), cmap='gray')
-                plt.axis("off")
-                plt.title("ground truth")
-                plt.savefig("{}ground_truth{}.png".format(epoch, i), dpi=300)
-                plt.close()
+                #plt.imshow(ground_truth_image.reshape(m,n), cmap='gray')
+                plt.imsave("{}ground_truth{}.png".format(epoch, i), ground_truth_image.reshape(m,n) ,dpi=300)
 
-                plt.imshow(mu.detach().reshape(m,n), cmap='gray')
-                plt.axis("off")
-                plt.title("mean")
-                plt.savefig("{}mean{}.png".format(epoch, i), dpi=300)
-                plt.close()
+                #plt.imshow(mu.detach().reshape(m,n), cmap='gray')
+                plt.imsave("{}mean{}.png".format(epoch, i),mu.detach().reshape(m,n) ,dpi=300)
 
-                plt.imshow(sigma.detach().reshape(m, n), cmap='gray')
-                plt.axis("off")
-                plt.title("variance")
-                plt.savefig("{}var{}.png".format(epoch, i), dpi=300)
-                plt.close()
+                #plt.imshow(sigma.detach().reshape(m, n), cmap='gray')
+                plt.imsave("{}var{}.png".format(epoch, i),sigma.detach().reshape(m,n) ,dpi=300)
 
                 if i >= 10:
                     break
-
-
