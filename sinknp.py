@@ -13,7 +13,7 @@ import networkx as nx
 from tqdm import tqdm
 import os
 import utils
-from layers import CoordConv
+from layers import CoordConv, SinkhornDistance
 
 
 
@@ -80,7 +80,7 @@ class Critic(nn.Module):
 
 if __name__ == "__main__":
 
-    batch_size= 16
+    batch_size=1
     test_batch_size=1
 
     m, n = 28, 28
@@ -110,14 +110,11 @@ if __name__ == "__main__":
     epochs = 10
     log_interval = 50
     learning_rate = 0.1
-    n_critic = 5
     
     encoder = Encoder().to(device)
     decoder = Decoder(m, n).to(device)
-    critic = Critic().to(device)
 
-    optimizer = optim.Adam(list(encoder.parameters()) + list(decoder.parameters()), lr=0.0001, betas=(0,0.9))
-    optimizer_critic = optim.Adam(critic.parameters(), lr=0.0001, betas=(0,0.9))
+    optimizer = optim.Adam(list(encoder.parameters()) + list(decoder.parameters()))
     
     image_frame = torch.tensor([[i, j] for i in range(0,m) for j in range(0,n)]).float().to(device)
     
@@ -129,69 +126,38 @@ if __name__ == "__main__":
 
         total_loss = 0
         count = 0
-        for (batch_ground_truth_image, target) in progress:
-            # ground_truth_image = ground_truth_image.view(28, 28).to(device)
+        for (ground_truth_image, target) in progress:
+            ground_truth = ground_truth_image.view(784,1)
+            ground_truth = ground_truth / torch.sum(ground_truth)
+            ground_truth_image = ground_truth_image.view(28, 28).to(device)
             
-            for t in range(n_critic):
-                optimizer_critic.zero_grad()
-                loss = 0
-
-                for ground_truth_image in batch_ground_truth_image:
-                    ground_truth_image = ground_truth_image.view(28, 28).to(device)
-
-                    sparse_data = utils.get_mnist_context_points(ground_truth_image, context_points=np.random.randint(min_context_points, max_context_points)).float().to(device)
-
-                    data = utils.get_mnist_features(sparse_data)
-
-                    data = data.to(device).float()
-                    
-                    # run the model to get r which will be concatenated onto every node pair in the decoder
-                    r = encoder(data)
-                    
-                    out = torch.cat((image_frame, r.view(1,-1).repeat(1,m*n).view(m*n,128)), 1)
-
-                    h = decoder(out)
-                    h = h.view(m,n)
-
-                    disc_real = critic(ground_truth_image)
-                    disc_fake = critic(h)
-
-                    gradient_penalty = utils.calc_gradient_penalty(critic, ground_truth_image, h)
-
-                    loss += disc_fake - disc_real + gradient_penalty
-                loss = loss / batch_size
-                
-
-                loss.backward()
-                optimizer_critic.step()
 
 
+            sparse_data = utils.get_mnist_context_points(ground_truth_image, context_points=np.random.randint(min_context_points, max_context_points)).float().to(device)
+
+            data = utils.get_mnist_features(sparse_data)
+
+            data = data.to(device).float()
             optimizer.zero_grad()
-            gen_loss = 0
-            for ground_truth_image in batch_ground_truth_image:
-                ground_truth_image = ground_truth_image.view(28, 28).to(device)
+            
+            # run the model to get r which will be concatenated onto every node pair in the decoder
+            r = encoder(data)
+            
+            out = torch.cat((image_frame, r.view(1,-1).repeat(1,m*n).view(m*n,128)), 1)
 
-                sparse_data = utils.get_mnist_context_points(ground_truth_image, context_points=np.random.randint(min_context_points, max_context_points)).float().to(device)
+            h = decoder(out)
 
-                data = utils.get_mnist_features(sparse_data)
-                r = encoder(data)
-                    
-                out = torch.cat((image_frame, r.view(1,-1).repeat(1,m*n).view(m*n,128)), 1)
+            # mu, sigma = decoder(out)
 
-                h = decoder(out)
-                h = h.view(m,n)
-
-                disc_fake = critic(h)
-                
-                gen_loss += -disc_fake
-
-                
-            gen_loss = gen_loss / batch_size
-
-            total_loss += gen_loss.item()
+            # mu = mu.view(m,n)
+            # sigma = sigma.view(m,n)
+            # loss = -utils.get_log_p(ground_truth_image, mu, sigma).mean()
+            sinkhorn_distance = SinkhornDistance(eps=0.01, max_iter=300, reduction=None)
+            loss, _, _ = sinkhorn_distance(ground_truth.cpu(), h.cpu())
+            total_loss += loss.item()
             count += 1
-            gen_loss.backward()
 
+            loss.backward()
             optimizer.step()
             progress.set_description('E:{} - Loss: {:.4f}'.format(epoch, total_loss/count))
 
@@ -223,16 +189,17 @@ if __name__ == "__main__":
                 h = decoder(out)
 
 
-                fig, ax = plt.subplots(ncols=2, nrows=2)
-                ax[0][1].imshow(ground_truth_image.reshape(m,n).cpu())
-                ax[0][0].imshow(sparse_data.reshape(m,n).cpu())
-                ax[1][0].imshow(h.detach().reshape(m,n).cpu())
-                plt.savefig("{}res{}.png".format(epoch, i))
-                plt.close()
-                # plt.imsave("{}context_points{}.png".format(epoch, i), sparse_data.reshape(m,n).cpu(), dpi=300)
+                #plt.imshow(sparse_data.reshape(m,n), cmap='gray')
+                plt.imsave("{}context_points{}.png".format(epoch, i), sparse_data.reshape(m,n).cpu(), dpi=300)
 
-                # plt.imsave("{}ground_truth{}.png".format(epoch, i), ground_truth_image.reshape(m,n).cpu() ,dpi=300)
+                #plt.imshow(ground_truth_image.reshape(m,n), cmap='gray')
+                plt.imsave("{}ground_truth{}.png".format(epoch, i), ground_truth_image.reshape(m,n).cpu() ,dpi=300)
 
-                # plt.imsave("{}distr{}.png".format(epoch, i), h.detach().reshape(m,n).cpu(), dpi=300)
+                #plt.imshow(mu.detach().reshape(m,n), cmap='gray')
+                # plt.imsave("{}mean{}.png".format(epoch, i),mu.detach().reshape(m,n) ,dpi=300)
+
+                # plt.imshow(sigma.detach().reshape(m, n), cmap='gray')
+                # plt.imsave("{}var{}.png".format(epoch, i),sigma.detach().reshape(m,n) ,dpi=300)
+                plt.imsave("{}distr{}.png".format(epoch, i), h.detach().reshape(m,n).cpu(), dpi=300)
                 if i >= 10:
                     break

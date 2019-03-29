@@ -14,7 +14,6 @@ import networkx as nx
 from tqdm import tqdm
 
 import os
-import gc
 
 import utils
 
@@ -36,11 +35,6 @@ class Encoder(nn.Module):
         """x = sparsely sampled image
         this returns the aggregated r value
         """
-
-        # output = torch.empty((x.shape[0], 128)).to(device)
-
-        # for i, val in enumerate(x):
-        #     output[i] = self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(val)))))))
 
         output = self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(x)))))))
 
@@ -129,7 +123,7 @@ if __name__ == "__main__":
         total_loss = 0
         count = 0
         for (ground_truth_image, target) in progress:
-            ground_truth_image = ground_truth_image.view(28, 28)
+            ground_truth_image = ground_truth_image.view(28, 28).to(device)
 
             sparse_data = utils.get_mnist_context_points(ground_truth_image, context_points=np.random.randint(min_context_points, max_context_points)).float().to(device)
 
@@ -146,7 +140,7 @@ if __name__ == "__main__":
             mu = mu.view(m,n)
             sigma = sigma.view(m,n)
 
-            loss = -utils.get_log_p(sparse_data, mu, sigma).mean()
+            loss = -utils.get_log_p(ground_truth_image, mu, sigma).mean()
 
             total_loss += loss
             count += 1

@@ -3,6 +3,8 @@ import matplotlib.pyplot as plt
 import networkx as nx
 import pickle
 import torch
+from torch import autograd
+from torch.optim import Optimizer
 import math
 
 import scipy
@@ -166,7 +168,7 @@ def sparsely_observe_graph(G, min_context_percent, max_context_percent):
 
 def get_mnist_context_points(data, context_points=100):
     
-    mask = np.zeros_like(data)
+    mask = np.zeros_like(data.cpu())
     
     n,m = mask.shape
     mask = mask.reshape(-1)
@@ -183,6 +185,16 @@ def get_mnist_context_points(data, context_points=100):
     data = torch.tensor(data)
     
     return data
+
+def get_mnist_features(x):
+    cntx = x.nonzero()
+        
+    intensities = x[cntx[:,0], cntx[:,1]]
+
+    features = torch.stack((cntx[:,0].float(), cntx[:,1].float(), intensities.float()))
+    features.transpose_(0,1)
+
+    return features
 
 def graph_neighbor_feature_extractor(G, target=False):
     """
@@ -357,6 +369,29 @@ def run_baselines(train, test, outfile_name="full_baseline"):
 
     with open("{}.pkl".format(outfile_name), "wb") as f:
         pickle.dump(datum, f)
+
+
+def calc_gradient_penalty(netD, real_data, fake_data, device="cuda"):
+    alpha = torch.rand(1, 1)
+    alpha = alpha.expand(1, int(real_data.nelement()/1)).contiguous()
+    alpha = alpha.view(28, 28)
+    alpha = alpha.to(device)
+    
+    fake_data = fake_data.view(28,28)
+    interpolates = alpha * real_data.detach() + ((1 - alpha) * fake_data.detach())
+
+    interpolates = interpolates.to(device)
+    interpolates.requires_grad_(True)
+
+    disc_interpolates = netD(interpolates)
+
+    gradients = autograd.grad(outputs=disc_interpolates, inputs=interpolates,
+                              grad_outputs=torch.ones(disc_interpolates.size()).to(device),
+                              create_graph=True, retain_graph=True, only_inputs=True)[0] # false, false, true
+
+    gradients = gradients.view(gradients.size(0), -1)                              
+    gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * 10
+    return gradient_penalty
 
 if __name__ == "__main__":
     d = load_dataset_from_pickle()
