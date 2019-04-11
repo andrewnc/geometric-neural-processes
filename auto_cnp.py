@@ -38,6 +38,24 @@ class MNISTEncoder(nn.Module):
 
         return output.mean(0).view(1, 128)
 
+class MNISTEncoderWithAttention(nn.Module):
+    """takes in context points and returns a fixed length aggregation"""
+    def __init__(self):
+        super(MNISTEncoderWithAttention, self).__init__()
+        self.fc1 = nn.Linear(3, 16)
+        self.fc2 = nn.Linear(16, 32)
+        self.fc3 = nn.Linear(32, 64)
+        self.fc4 = nn.Linear(64, 128)
+        
+
+    def forward(self, x):
+        """x = sparsely sampled image
+        this returns the aggregated r value
+        """
+
+        output = self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(x)))))))
+        return F.softmax(torch.mm(torch.mm(output, torch.transpose(output, 0,1)) / np.sqrt(output.shape[1]), output), dim=0).mean(0).view(1, 128)
+
 class MNISTLatentEncoder(nn.Module):
     """takes in context points and returns a fixed length aggregation"""
     def __init__(self):
@@ -68,7 +86,7 @@ class MNISTLatentEncoder(nn.Module):
         sigma = self.sigma_latent(hidden)
 
         sigma = 0.1 + 0.9*F.softplus(sigma)
-        return torch.distributions.Normal(loc=mu, scale=sigma), mu, sigma 
+        return torch.distributions.Normal(loc=mu, scale=sigma)
 
 
 class MNISTDecoder(nn.Module):
@@ -115,7 +133,7 @@ class MNISTLatentDecoder(nn.Module):
         # bound the variance
         sigma = 0.1 + 0.9 * F.softplus(log_sigma)
         
-        return mu, sigma
+        return torch.distributions.Normal(loc=mu, scale=sigma), mu, sigma
 
 
 class FCCritic(nn.Module):
@@ -151,7 +169,8 @@ class Critic(nn.Module):
 
 if __name__ == "__main__":
 
-    batch_size= 16
+    use_attention = False
+    batch_size= 1
     test_batch_size=1
 
     m, n = 28, 28
@@ -183,13 +202,14 @@ if __name__ == "__main__":
     learning_rate = 0.1
     n_critic = 5
     
-    encoder = MNISTEncoder().to(device)
+    if use_attention:
+        encoder = MNISTEncoderWithAttention().to(device)
+    else:
+        encoder = MNISTEncoder().to(device)
     latent_encoder = MNISTLatentEncoder().to(device)
     decoder = MNISTLatentDecoder(m, n).to(device)
-    critic = FCCritic().to(device)
 
     optimizer = optim.Adam(list(encoder.parameters()) + list(decoder.parameters()) + list(latent_encoder.parameters()), lr=0.0001, betas=(0,0.9))
-    optimizer_critic = optim.Adam(critic.parameters(), lr=0.0001, betas=(0,0.9))
     
     image_frame = torch.tensor([[i, j] for i in range(0,m) for j in range(0,n)]).float().to(device)
     
@@ -201,71 +221,44 @@ if __name__ == "__main__":
 
         total_loss = 0
         count = 0
-        for (batch_ground_truth_image, target) in progress:
+        # for (batch_ground_truth_image, target) in progress:
             # ground_truth_image = ground_truth_image.view(28, 28).to(device)
+            # loss = 0
+
+        for (ground_truth_image, target) in progress:
+            ground_truth_image = ground_truth_image.view(28, 28).to(device)
+
+            sparse_data = utils.get_mnist_context_points(ground_truth_image, context_points=np.random.randint(min_context_points, max_context_points)).float().to(device)
+
+            data = utils.get_mnist_features(sparse_data)
+
+            data = data.to(device).float()
             
-            for t in range(n_critic):
-                optimizer_critic.zero_grad()
-                loss = 0
+            # run the model to get r which will be concatenated onto every node pair in the decoder
+            r = encoder(data)
+            posterior = latent_encoder(data)
+            latent_rep = posterior.sample()
+            # latent_rep = latent_rep.view(1,-1).repeat(1,m*n).view(m*n, 128) 
+                            
+            r = torch.cat((r, latent_rep), -1)
+            # print(r.shape)
+            out = torch.cat((image_frame, r.view(1,-1).repeat(1,m*n).view(m*n,129)), 1)
+            # out = torch.cat((image_frame, r), -1) 
 
-                for ground_truth_image in batch_ground_truth_image:
-                    ground_truth_image = ground_truth_image.view(28, 28).to(device)
+            dist, mu, sigma = decoder(out)
+            mu = mu.view(m,n)
+            sigma = sigma.view(m,n)
+            temp_loss = utils.get_log_p(ground_truth_image, mu, sigma).mean() - torch.distributions.kl_divergence(dist, posterior).mean()
 
-                    sparse_data = utils.get_mnist_context_points(ground_truth_image, context_points=np.random.randint(min_context_points, max_context_points)).float().to(device)
+            loss = -temp_loss 
+            # loss = loss / batch_size
+            # total_loss += loss.item() 
 
-                    data = utils.get_mnist_features(sparse_data)
-
-                    data = data.to(device).float()
-                    
-                    # run the model to get r which will be concatenated onto every node pair in the decoder
-                    r = encoder(data)
-                    
-                    out = torch.cat((image_frame, r.view(1,-1).repeat(1,m*n).view(m*n,128)), 1)
-
-                    h = decoder(out)
-                    h = h.view(m,n)
-
-                    disc_real = critic(ground_truth_image)
-                    disc_fake = critic(h)
-
-                    gradient_penalty = utils.calc_gradient_penalty(critic, ground_truth_image, h)
-
-                    loss += disc_fake - disc_real + gradient_penalty
-                loss = loss / batch_size
-                
-
-                loss.backward()
-                optimizer_critic.step()
-
-
-            optimizer.zero_grad()
-            gen_loss = 0
-            for ground_truth_image in batch_ground_truth_image:
-                ground_truth_image = ground_truth_image.view(28, 28).to(device)
-
-                sparse_data = utils.get_mnist_context_points(ground_truth_image, context_points=np.random.randint(min_context_points, max_context_points)).float().to(device)
-
-                data = utils.get_mnist_features(sparse_data)
-                r = encoder(data)
-                    
-                out = torch.cat((image_frame, r.view(1,-1).repeat(1,m*n).view(m*n,128)), 1)
-
-                h = decoder(out)
-                h = h.view(m,n)
-
-                disc_fake = critic(h)
-                
-                gen_loss += -disc_fake
-
-                
-            gen_loss = gen_loss / batch_size
-
-            total_loss += gen_loss.item()
-            count += 1
-            gen_loss.backward()
-
+            # count += 1
+            
+            loss.backward()
             optimizer.step()
-            progress.set_description('E:{} - Loss: {:.4f}'.format(epoch, total_loss/count))
+            progress.set_description('E:{} - Loss: {:.4f}'.format(epoch, loss.item()))
 
         with open("encoder_wasnp.pkl", "wb") as of:
              pickle.dump(encoder, of)
@@ -289,17 +282,23 @@ if __name__ == "__main__":
                 data = data.to(device).float()
 
                 r = encoder(data)
+                posterior = latent_encoder(data)
+                latent_rep = posterior.sample()
+                             
+                r = torch.cat((r, latent_rep), -1)
+                out = torch.cat((image_frame, r.view(1,-1).repeat(1,m*n).view(m*n,129)), 1)
 
-
-                out = torch.cat((image_frame, r.view(1,-1).repeat(1,m*n).view(m*n,128)), 1)
-                h = decoder(out)
+                dist, mu, sigma = decoder(out)
+                mu = mu.view(m,n)
+                sigma = sigma.view(m,n)
 
 
                 fig, ax = plt.subplots(ncols=2, nrows=2)
                 ax[0][1].imshow(ground_truth_image.reshape(m,n).cpu())
                 ax[0][0].imshow(sparse_data.reshape(m,n).cpu())
-                ax[1][0].imshow(h.detach().reshape(m,n).cpu())
-                plt.savefig("{}res{}.png".format(epoch, i))
+                ax[1][0].imshow(mu.detach().reshape(m,n).cpu())
+                ax[1][1].imshow(sigma.detach().reshape(m,n).cpu())
+                plt.savefig("attention{}res{}.png".format(epoch, i))
                 plt.close()
                 # plt.imsave("{}context_points{}.png".format(epoch, i), sparse_data.reshape(m,n).cpu(), dpi=300)
 
