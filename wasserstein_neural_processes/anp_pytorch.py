@@ -775,10 +775,10 @@ def train_regression():
     # Define the loss
     model = model.to(device)
 
-    print("running training loop")
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     start_time = time.time()
-    for it in tqdm(range(TRAINING_ITERATIONS)):
+    progress = tqdm(range(TRAINING_ITERATIONS))
+    for it in progress: 
         optimizer.zero_grad()
         data_train = dataset_train.generate_curves()
         (context_x, context_y), target_x = data_train.query
@@ -797,7 +797,7 @@ def train_regression():
                                     target_y)
             elapsed = 100 * (time.time() - start_time) / PLOT_AFTER
             start_time = time.time()
-            print('Iteration: {}, {:.3f} secs/100it, loss: {:.3f}'.format(it, elapsed, loss_value))
+            progress.set_description('test loss: {:.3f}'.format(loss_value.item()))
             # plot_functions(target_x, target_y, context_x, context_y, pred_y, std_y)
             # plot_grad_flow(model.named_parameters())
 
