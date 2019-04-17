@@ -10,7 +10,6 @@ from tqdm import tqdm
 import utils
 
 device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-device = 'cpu'
 print('Using device:', device)
 
 # The (A)NP takes as input a `NPRegressionDescription` namedtuple with fields:
@@ -729,6 +728,21 @@ def plot_grad_flow(named_parameters):
     plt.grid(True)
     plt.show()
 
+def split_target_context(ground_truth_image, image_frame, batch_size, X_SIZE, Y_SIZE, min_context_points, max_context_points):
+    """[batch, c, m, n]"""
+    sparse_data = utils.batch_context(ground_truth_image, context_points=np.random.randint(min_context_points, max_context_points)).float().to(device)
+
+    context_x, context_y = utils.batch_features(sparse_data)
+    context_x, context_y = context_x.to(device), context_y.to(device)
+
+    target_x = image_frame
+    target_x = target_x.view(batch_size,-1,X_SIZE)
+    target_y = ground_truth_image
+    target_y = target_y.view(batch_size,-1,Y_SIZE)
+
+    target_x, target_y = target_x.to(device), target_y.to(device)
+    return sparse_data, context_x, context_y, target_x, target_y
+
 
 
 def train_regression():
@@ -810,27 +824,15 @@ def train_regression():
     # Define the loss
     model = model.to(device)
 
-    image_frame = torch.tensor([[i, j] for i in range(0,m) for j in range(0,n)]).float().to(device)
+    image_frame = torch.tensor([[i, j] for i in range(0,m) for j in range(0,n)]).repeat(batch_size,Y_SIZE).float().to(device)
+    test_image_frame = torch.tensor([[i, j] for i in range(0,m) for j in range(0,n)]).repeat(test_batch_size,Y_SIZE).float().to(device)
     optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
     for epoch in range(10):
         progress = tqdm(enumerate(train_loader))
         for i, (ground_truth_image, target) in progress: 
             optimizer.zero_grad()
-            ground_truth_image = ground_truth_image.view(28,28)
-            sparse_data = utils.get_mnist_context_points(ground_truth_image, context_points=np.random.randint(min_context_points, max_context_points)).float().to(device)
 
-            data = utils.get_mnist_features(sparse_data)
-            data = data.to(device).float()
-            context_x = data[:,0:2]
-            context_x = context_x.view(1,-1,X_SIZE)
-            
-
-            context_y = data[:,-1]
-            context_y = context_y.view(1, -1,Y_SIZE)
-            target_x = image_frame
-            target_x = target_x.view(1,-1,X_SIZE)
-            target_y = ground_truth_image
-            target_y = target_y.view(1,-1,Y_SIZE)
+            sparse_data, context_x, context_y, target_x, target_y = split_target_context(ground_truth_image, image_frame,batch_size, X_SIZE, Y_SIZE, min_context_points, max_context_points)
 
             pred_y, std_y, log_p, kl, loss_value = model(((context_x, context_y), target_x), target_x.shape[1],
                                             target_y)
@@ -838,38 +840,20 @@ def train_regression():
             optimizer.step()
 
             progress.set_description('E: {} loss: {:.3f}'.format(epoch, loss_value.item()))
-            if i >= 2000:
-                break
         with torch.no_grad():
             # Plot the prediction and the context
             for j, (test_image, test_target) in enumerate(test_loader):
-                test_image = test_image.view(28,28)
-                sparse_data = utils.get_mnist_context_points(test_image, context_points=np.random.randint(min_context_points, max_context_points)).float().to(device)
+                sparse_data, context_x, context_y, target_x, target_y = split_target_context(test_image, test_image_frame,test_batch_size, X_SIZE, Y_SIZE, min_context_points, max_context_points)
 
-                data = utils.get_mnist_features(sparse_data)
-                data = data.to(device).float()
-                context_x = data[:,0:2]
-                context_x = context_x.view(1,-1,X_SIZE)
-
-                context_y = data[:,-1]
-                context_y = context_y.view(1, -1,Y_SIZE)
-
-                target_data = utils.get_mnist_features(test_image)
-                target_data = target_data.to(device).float()
-                target_x = image_frame
-                target_x = target_x.view(1,-1,X_SIZE)
-                target_y = test_image
-                target_y = target_y.view(1,-1,Y_SIZE)
 
                 pred_y, std_y, log_p, kl, loss_value = model(((context_x, context_y), target_x), target_x.shape[1],target_y)
                 progress.set_description('E: {} loss: {:.3f}'.format(epoch, loss_value.item()))
-                plot_quartet(test_image, sparse_data, pred_y, std_y, epoch, j, m,n)
                 fig, ax = plt.subplots(ncols=2, nrows=2)
-                ax[0][1].imshow(test_image.reshape(m,n).cpu())
-                ax[0][0].imshow(sparse_data.reshape(m,n).cpu())
-                ax[1][0].imshow(pred_y.detach().reshape(m,n).cpu())
-                ax[1][1].imshow(std_y.detach().reshape(m,n).cpu())
-                plt.savefig("attention{}res{}.png".format(epoch, i))
+                ax[0][1].imshow(test_image.reshape(m,n).cpu(), cmap='gray')
+                ax[0][0].imshow(sparse_data.reshape(m,n).cpu(), cmap='gray')
+                ax[1][0].imshow(pred_y.detach().reshape(m,n).cpu(), cmap='gray')
+                ax[1][1].imshow(std_y.detach().reshape(m,n).cpu(), cmap='gray')
+                plt.savefig("attention{}res{}.png".format(epoch, j))
                 plt.close()
                 if j >= 10:
                     break

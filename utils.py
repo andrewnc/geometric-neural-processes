@@ -186,6 +186,27 @@ def get_mnist_context_points(data, context_points=100):
     
     return data
 
+def batch_context(image, context_points=100):
+    """image should be [batch,c, m, n] - it should probably be a torch tensor"""
+    batch, c, m, n = image.shape
+    mask = np.random.choice([0,1], size=(batch,c,m,n), p=[1-context_points/(m*n), context_points/(m*n)])
+    masked_image = np.array(image)
+    masked_image[mask != 1] = 0
+    return torch.tensor(masked_image)
+
+def batch_features(x):
+    """x should be [batch, c, m, n] also a tensor"""
+    batch, c, n, m = x.shape
+    cntx = x.nonzero()
+    context_x = torch.zeros((batch, len(cntx), 2))
+    context_y = torch.zeros((batch, len(cntx), 1))
+    for point in cntx:
+        batch_loc, _, x_pos, y_pos = point
+        context_x[batch_loc] = torch.Tensor([x_pos, y_pos])
+        context_y[batch_loc] = x[batch_loc,:,x_pos,y_pos]
+     
+    return context_x, torch.Tensor(context_y).view(batch, len(cntx), 1) 
+
 def get_mnist_features(x):
     cntx = x.nonzero()
         
@@ -196,6 +217,7 @@ def get_mnist_features(x):
 
     return features
 
+
 def graph_neighbor_feature_extractor(G, target=False):
     """
     parameters - 
@@ -205,7 +227,7 @@ def graph_neighbor_feature_extractor(G, target=False):
     T (torch.Tensor) - tensor of shape #unknown n_edges x [node1_val, node2_val, node1_degree, node2_degree]
     """
 
-    data = []
+    data = {}
     target_values = []
     for edge in G.edges:
         neighborhood_values = []
@@ -213,20 +235,20 @@ def graph_neighbor_feature_extractor(G, target=False):
 
         for edge_ in list(G.edges(node1)):
             try:
-                neighborhood_values.append(nx.get_edge_attributes(G, 'edge_value')[edge_])
+                neighborhood_values.append(G.edges[edge_]['edge_value'])
             except:
-                neighborhood_values.append(nx.get_edge_attributes(G, 'edge_value')[edge_[::-1]])
+                neighborhood_values.append(G.edges[edge_[::-1]]['edge_value'])
 
         for edge_ in list(G.edges(node2)):
             try:
-                neighborhood_values.append(nx.get_edge_attributes(G, 'edge_value')[edge_])
+                neighborhood_values.append(G.edges[edge_]['edge_value'])
             except:
-                neighborhood_values.append(nx.get_edge_attributes(G, 'edge_value')[edge_[::-1]])
+                neighborhood_values.append(G.edges[edge_[::-1]]['edge_value'])
 
         if target:
             target_values.append(G.edges[edge]['edge_value'])
 
-        data.append(neighborhood_values)
+        data[str(edge)] = neighborhood_values
 
     if target:
         return data, target_values
@@ -333,6 +355,12 @@ def softmax(x):
     """Compute softmax values for each sets of scores in x."""
     e_x = np.exp(x - np.max(x, axis=1, keepdims=True))
     return e_x / e_x.sum(axis=1,keepdims=True)
+
+def indices_to_one_hot(data, nb_classes):
+    """Convert an iterable of indices to one-hot encoded labels."""
+    
+    targets = np.array(data).reshape(-1).astype(np.int32)
+    return np.eye(nb_classes)[targets]
 
 def distance_metric(G1, G2):
     """get the distance between two graphs, using the value of the edges, assuming node values are the same"""
