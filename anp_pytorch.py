@@ -366,6 +366,18 @@ class Decoder(nn.Module):
 
         return dist, mu, sigma
 
+class Critic(nn.Module):
+    """critic used to learn the wasserstein distance"""
+    def __init__(self, x_size, y_size):
+        super().__init__()
+        self.x_size = x_size
+        self.y_size = y_size
+    
+    def forward(self, x):
+        print("you are running the critic")
+        return x
+
+
 class LatentModel(nn.Module):
     """The (A)NP model."""
 
@@ -459,12 +471,25 @@ class LatentModel(nn.Module):
             log_p = dist.log_prob(target_y)
             posterior = self._latent_encoder(target_x, target_y)
             kl = torch.distributions.kl.kl_divergence(posterior, prior).sum(dim=-1, keepdim=True)
+            wass_dist = torch.norm(posterior.loc - prior.loc)**2 + torch.trace(posterior.scale) + torch.trace(prior.scale) - 2*torch.trace(torch.sqrt(torch.sqrt(posterior.scale)*prior.scale*torch.sqrt(posterior.scale)))
             kl = tile(kl, [1, num_targets])
-            loss = - torch.mean(log_p - kl / num_targets)
+            wass_dist = tile(wass_dist, [1, num_targets])
+            loss = - torch.mean(log_p - wass_dist / num_targets)
         else:
             log_p = None
             kl = None
             loss = None
+
+    #    if target_y is not None:
+    #         log_p = dist.log_prob(target_y)
+    #         posterior = self._latent_encoder(target_x, target_y)
+    #         kl = torch.distributions.kl.kl_divergence(posterior, prior).sum(dim=-1, keepdim=True)
+    #         kl = tile(kl, [1, num_targets])
+    #         loss = - torch.mean(log_p - kl / num_targets)
+    #     else:
+    #         log_p = None
+    #         kl = None
+    #         loss = None
 
         return mu, sigma, log_p, kl, loss
 
@@ -724,7 +749,7 @@ def plot_grad_flow(named_parameters):
 def train_regression():
     TRAINING_ITERATIONS = 100000 #@param {type:"number"}
     MAX_CONTEXT_POINTS = 50 #@param {type:"number"}
-    PLOT_AFTER = 10000 #10000 #@param {type:"number"}
+    PLOT_AFTER = 100 #10000 #@param {type:"number"}
     HIDDEN_SIZE = 128 #@param {type:"number"}
     MODEL_TYPE = 'ANP' #@param ['NP','ANP']
     ATTENTION_TYPE = 'multihead' #@param ['uniform','laplace','dot_product','multihead']
