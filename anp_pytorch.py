@@ -119,7 +119,7 @@ class GPCurvesReader(object):
         Generated functions are `float32` with x values between -2 and 2.
 
         Returns:
-          A `CNPRegressionDescription` namedtuple.
+          A `NPRegressionDescription` namedtuple.
         """
         num_context = torch.empty(1).uniform_(3, self._max_num_context).int().item()
 
@@ -383,7 +383,7 @@ class LatentModel(nn.Module):
 
     def __init__(self, x_size, y_size, latent_encoder_output_sizes, num_latents,
                decoder_output_sizes, use_deterministic_path=True,
-               deterministic_encoder_output_sizes=None, attention=None):
+               deterministic_encoder_output_sizes=None, attention=None, loss_type="std"):
         """Initialises the model.
 
         Args:
@@ -403,6 +403,7 @@ class LatentModel(nn.Module):
         """
         super().__init__()
         self._xy_size = x_size + y_size
+        self.loss_type = loss_type
 
         self._latent_encoder = LatentEncoder(xy_size=self._xy_size, output_sizes=latent_encoder_output_sizes,
                                              num_latents=num_latents)
@@ -467,29 +468,30 @@ class LatentModel(nn.Module):
 
         # If we want to calculate the log_prob for training we will make use of the
         # target_y. At test time the target_y is not available so we return None.
-        if target_y is not None:
-            log_p = dist.log_prob(target_y)
-            posterior = self._latent_encoder(target_x, target_y)
-            kl = torch.distributions.kl.kl_divergence(posterior, prior).sum(dim=-1, keepdim=True)
-            wass_dist = torch.norm(posterior.loc - prior.loc)**2 + torch.trace(posterior.scale) + torch.trace(prior.scale) - 2*torch.trace(torch.sqrt(torch.sqrt(posterior.scale)*prior.scale*torch.sqrt(posterior.scale)))
-            kl = tile(kl, [1, num_targets])
-            wass_dist = tile(wass_dist, [1, num_targets])
-            loss = - torch.mean(log_p - wass_dist / num_targets)
-        else:
-            log_p = None
-            kl = None
-            loss = None
 
-    #    if target_y is not None:
-    #         log_p = dist.log_prob(target_y)
-    #         posterior = self._latent_encoder(target_x, target_y)
-    #         kl = torch.distributions.kl.kl_divergence(posterior, prior).sum(dim=-1, keepdim=True)
-    #         kl = tile(kl, [1, num_targets])
-    #         loss = - torch.mean(log_p - kl / num_targets)
-    #     else:
-    #         log_p = None
-    #         kl = None
-    #         loss = None
+        if self.loss_type == "wass":
+            if target_y is not None:
+                log_p = dist.log_prob(target_y)
+                posterior = self._latent_encoder(target_x, target_y)
+                wass_dist = torch.norm(posterior.loc - prior.loc)**2 + torch.trace(posterior.scale) + torch.trace(prior.scale) - 2*torch.trace(torch.sqrt(torch.sqrt(posterior.scale)*prior.scale*torch.sqrt(posterior.scale)))
+                wass_dist = tile(wass_dist, [1, num_targets])
+                loss = - torch.mean(log_p - wass_dist / num_targets)
+                kl = wass_dist # this is merely for the return value, and because I'm lazy
+            else:
+                log_p = None
+                kl = None
+                loss = None
+        elif self.loss_type == "std":
+            if target_y is not None:
+                log_p = dist.log_prob(target_y)
+                posterior = self._latent_encoder(target_x, target_y)
+                kl = torch.distributions.kl.kl_divergence(posterior, prior).sum(dim=-1, keepdim=True)
+                kl = tile(kl, [1, num_targets])
+                loss = - torch.mean(log_p - kl / num_targets)
+            else:
+                log_p = None
+                kl = None
+                loss = None
 
         return mu, sigma, log_p, kl, loss
 
@@ -681,7 +683,7 @@ class Attention(nn.Module):
 
         return rep
 
-def plot_functions(target_x, target_y, context_x, context_y, pred_y, std, epoch, j):
+def plot_functions(target_x, target_y, context_x, context_y, pred_y, std, outfile=""):
     """Plots the predicted mean and variance and the context points.
 
     Args:
@@ -720,7 +722,7 @@ def plot_functions(target_x, target_y, context_x, context_y, pred_y, std, epoch,
     plt.ylim([-2, 2])
     plt.grid(False)
     ax = plt.gca()
-    plt.savefig("attention{}res{}.png".format(epoch, j))
+    plt.savefig(outfile)
     plt.close()
 
 def plot_grad_flow(named_parameters):
@@ -773,7 +775,7 @@ def train_regression():
     # The final output layer of the decoder outputs two values, one for the mean and
     # one for the variance of the prediction at the target location
     latent_encoder_output_sizes = [HIDDEN_SIZE]*4
-    num_latents = HIDDEN_SIZE
+    num_latents = HIDDEN_SIZE 
     deterministic_encoder_output_sizes= [HIDDEN_SIZE]*4
     decoder_output_sizes = [HIDDEN_SIZE]*2 + [2]
     use_deterministic_path = True
@@ -794,38 +796,46 @@ def train_regression():
     print("num_latents: {}, latent_encoder_output_sizes: {}, deterministic_encoder_output_sizes: {}, decoder_output_sizes: {}".format(
         num_latents, latent_encoder_output_sizes, deterministic_encoder_output_sizes, decoder_output_sizes))
     decoder_input_size = 2 * HIDDEN_SIZE + X_SIZE
-    model = LatentModel(X_SIZE, Y_SIZE, latent_encoder_output_sizes, num_latents,
+    model_std = LatentModel(X_SIZE, Y_SIZE, latent_encoder_output_sizes, num_latents,
                         decoder_output_sizes, use_deterministic_path,
-                        deterministic_encoder_output_sizes, attention)
+                        deterministic_encoder_output_sizes, attention, loss_type="std").to(device)
+    model_wass = LatentModel(X_SIZE, Y_SIZE, latent_encoder_output_sizes, num_latents,
+                        decoder_output_sizes, use_deterministic_path,
+                        deterministic_encoder_output_sizes, attention, loss_type="wass").to(device)
+    models = [model_std, model_wass]
+    model_map = {0:"model_std", 1: "model_wass"}
 
-    # Define the loss
-    model = model.to(device)
-
-    optimizer = torch.optim.Adam(model.parameters(), lr=1e-4)
+    optimizers = []
+    for model in models:
+        optimizers.append(torch.optim.Adam(model.parameters(), lr=1e-4))
     start_time = time.time()
     progress = tqdm(range(TRAINING_ITERATIONS))
     for it in progress: 
-        optimizer.zero_grad()
         data_train = dataset_train.generate_curves()
         (context_x, context_y), target_x = data_train.query
         target_y = data_train.target_y
-        pred_y, std_y, log_p, kl, loss_value = model(data_train.query, data_train.num_total_points,
+        for optimizer, model in zip(optimizers, models):
+            optimizer.zero_grad()
+            pred_y, std_y, log_p, kl, loss_value = model(data_train.query, data_train.num_total_points,
                                         data_train.target_y)
-        loss_value.backward()
-        optimizer.step()
-
-        # Plot the prediction and the context
-        if it % PLOT_AFTER == 0:
-            data_test = dataset_test.generate_curves()
-            (context_x, context_y), target_x = data_test.query
-            target_y = data_test.target_y
-            pred_y, std_y, log_p, kl, loss_value = model(data_test.query, data_test.num_total_points,
-                                    target_y)
-            elapsed = 100 * (time.time() - start_time) / PLOT_AFTER
-            start_time = time.time()
+            loss_value.backward()
+            optimizer.step()
             progress.set_description('test loss: {:.3f}'.format(loss_value.item()))
-            plot_functions(target_x, target_y, context_x, context_y, pred_y, std_y, int(it/PLOT_AFTER), it)
-            # plot_grad_flow(model.named_parameters())
+
+        with torch.no_grad():
+            # Plot the prediction and the context
+            if it % PLOT_AFTER == 0:
+                data_test = dataset_test.generate_curves()
+                (context_x, context_y), target_x = data_test.query
+                target_y = data_test.target_y
+
+                for i, model in enumerate(models):
+                    pred_y, std_y, log_p, kl, loss_value = model(data_test.query, data_test.num_total_points,
+                                            target_y)
+                    elapsed = 100 * (time.time() - start_time) / PLOT_AFTER
+                    start_time = time.time()
+                    plot_functions(target_x, target_y, context_x, context_y, pred_y, std_y, outfile="{}{}{}.png".format(int(it/PLOT_AFTER),model_map[i], it))
+                # plot_grad_flow(model.named_parameters())
 
     print("done")
 
