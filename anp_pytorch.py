@@ -472,6 +472,8 @@ class LatentModel(nn.Module):
         if self.loss_type == "wass":
             if target_y is not None:
                 log_p = dist.log_prob(target_y)
+                    # log_p[log_p != log_p] = 0
+
                 posterior = self._latent_encoder(target_x, target_y)
                 wass_dist = torch.norm(posterior.loc - prior.loc)**2 + torch.trace(posterior.scale) + torch.trace(prior.scale) - 2*torch.trace(torch.sqrt(torch.sqrt(posterior.scale)*prior.scale*torch.sqrt(posterior.scale)))
                 wass_dist = tile(wass_dist, [1, num_targets])
@@ -746,6 +748,44 @@ def plot_grad_flow(named_parameters):
     plt.grid(True)
     plt.show()
 
+class DegenerateCurves(object):
+    def __init__(self, batch_size=1, x_size=1, y_size=1, max_num_context=20, n=128, x_min=0, x_max=1):
+        self.batch_size = batch_size
+        self.x_size = x_size
+        self.y_size = y_size
+        self.max_num_context = max_num_context # this should be less than n
+        self.n = n
+        self.x_min = x_min
+        self.x_max = x_max
+
+    def generate_curves(self):
+        full_curve = []
+        curve = np.linspace(self.x_min, self.x_max, self.n)
+        for _ in range(self.batch_size):
+            full_curve.append(curve)
+
+        full_curve = np.array(full_curve)
+        target_x, target_y = torch.zeros_like(torch.Tensor(full_curve), requires_grad=True), torch.Tensor(full_curve)
+
+
+        num_context = np.random.randint(1, self.max_num_context)
+        # mask = np.random.choice([0,1], size=(self.batch_size,self.n), p=[1-context_points_percentage/(self.n), context_points_percentage/(self.n)])
+        mask = np.zeros(self.n)
+        mask[:num_context] = 1
+        full_mask = np.vstack([np.random.permutation(mask) for x in range(self.batch_size)])
+        context_y = []
+        for i, mask in enumerate(full_mask):
+            context_y.append(full_curve[i, mask == 1])
+        context_y = torch.Tensor(context_y)
+        context_x = torch.zeros_like(context_y)
+        
+        query = ((context_x.view(self.batch_size, num_context, 1).to(device), context_y.view(self.batch_size, num_context, 1).to(device)), target_x.view(self.batch_size, self.n, 1).to(device))
+
+        return NPRegressionDescription(
+        query=query,
+        target_y=target_y.view(self.batch_size, self.n, 1).to(device),
+        num_total_points=target_x.shape[1],
+        num_context_points=num_context)
 
 
 def train_regression():
@@ -765,6 +805,9 @@ def train_regression():
         batch_size=16, x_size=X_SIZE, y_size=Y_SIZE, max_num_context=MAX_CONTEXT_POINTS, random_kernel_parameters=random_kernel_parameters)
     data_train = dataset_train.generate_curves()
 
+    # dataset_train = DegenerateCurves(
+    #     batch_size=16, x_size=X_SIZE, y_size=Y_SIZE, max_num_context=MAX_CONTEXT_POINTS
+    # )
     # Test dataset
     dataset_test = GPCurvesReader(
         batch_size=1, x_size=X_SIZE, y_size=Y_SIZE, max_num_context=MAX_CONTEXT_POINTS, testing=True, random_kernel_parameters=random_kernel_parameters)
