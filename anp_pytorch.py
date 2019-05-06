@@ -798,21 +798,25 @@ def train_regression():
     random_kernel_parameters = True #@param {type:"boolean"}
     X_SIZE = 1
     Y_SIZE = 1
+    DEGENERATE = True
 
+    if DEGENERATE:
+        dataset_train = DegenerateCurves(
+            batch_size=16, x_size=X_SIZE, y_size=Y_SIZE, max_num_context=MAX_CONTEXT_POINTS
+        )
+        dataset_test = DegenerateCurves(
+            batch_size=1, x_size=X_SIZE, y_size=Y_SIZE, max_num_context=MAX_CONTEXT_POINTS
+        )
+    else:
+        # Train dataset
+        dataset_train = GPCurvesReader(
+            batch_size=16, x_size=X_SIZE, y_size=Y_SIZE, max_num_context=MAX_CONTEXT_POINTS, random_kernel_parameters=random_kernel_parameters
+            )
 
-    # Train dataset
-    dataset_train = GPCurvesReader(
-        batch_size=16, x_size=X_SIZE, y_size=Y_SIZE, max_num_context=MAX_CONTEXT_POINTS, random_kernel_parameters=random_kernel_parameters)
-    data_train = dataset_train.generate_curves()
-
-    # dataset_train = DegenerateCurves(
-    #     batch_size=16, x_size=X_SIZE, y_size=Y_SIZE, max_num_context=MAX_CONTEXT_POINTS
-    # )
-    # Test dataset
-    dataset_test = GPCurvesReader(
-        batch_size=1, x_size=X_SIZE, y_size=Y_SIZE, max_num_context=MAX_CONTEXT_POINTS, testing=True, random_kernel_parameters=random_kernel_parameters)
-    data_test = dataset_test.generate_curves()
-
+        # Test dataset
+        dataset_test = GPCurvesReader(
+            batch_size=1, x_size=X_SIZE, y_size=Y_SIZE, max_num_context=MAX_CONTEXT_POINTS, testing=True, random_kernel_parameters=random_kernel_parameters
+            )
 
     # Sizes of the layers of the MLPs for the encoders and decoder
     # The final output layer of the decoder outputs two values, one for the mean and

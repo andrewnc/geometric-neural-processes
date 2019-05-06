@@ -470,84 +470,84 @@ class LatentModel(nn.Module):
         return mu, sigma, log_p, kl, loss
 
 def uniform_attention(q, v):
-    """Uniform attention. Equivalent to np.
+    """uniform attention. equivalent to np.
 
-    Args:
-    q: queries. tensor of shape [B,m,d_k].
-    v: values. tensor of shape [B,n,d_v].
+    args:
+    q: queries. tensor of shape [b,m,d_k].
+    v: values. tensor of shape [b,n,d_v].
 
-    Returns:
-    tensor of shape [B,m,d_v].
+    returns:
+    tensor of shape [b,m,d_v].
     """
     total_points = q.shape[1]
-    rep = v.mean(dim=1, keepdim=True)
+    rep = v.mean(dim=1, keepdim=true)
     rep = tile(rep, [1, total_points, 1])
     return rep
 
 def laplace_attention(q, k, v, scale, normalise):
-    """Computes laplace exponential attention.
+    """computes laplace exponential attention.
 
-    Args:
-    q: queries. tensor of shape [B,m,d_k].
-    k: keys. tensor of shape [B,n,d_k].
-    v: values. tensor of shape [B,n,d_v].
-    scale: float that scales the L1 distance.
-    normalise: Boolean that determines whether weights sum to 1.
+    args:
+    q: queries. tensor of shape [b,m,d_k].
+    k: keys. tensor of shape [b,n,d_k].
+    v: values. tensor of shape [b,n,d_v].
+    scale: float that scales the l1 distance.
+    normalise: boolean that determines whether weights sum to 1.
 
-    Returns:
-    tensor of shape [B,m,d_v].
+    returns:
+    tensor of shape [b,m,d_v].
     """
     k = k.unsqueeze(1)
     q = q.unsqueeze(2)
     unnorm_weights = -torch.abs((k - q) / scale)
-    unnorm_weights = unnorm_weights.sum(dim=-1) #[B,m,n]
+    unnorm_weights = unnorm_weights.sum(dim=-1) #[b,m,n]
     if normalise:
-        weight_fn = lambda x: F.softmax(x, dim=-1)
+        weight_fn = lambda x: f.softmax(x, dim=-1)
     else:
-        weight_fn = lambda x: 1 + F.tanh(x)
-    weights = weight_fn(unnorm_weights)  # [B,m,n]
+        weight_fn = lambda x: 1 + f.tanh(x)
+    weights = weight_fn(unnorm_weights)  # [b,m,n]
     rep = torch.einsum('bik,bkj->bij', weights, v)
     return rep
 
 def dot_product_attention(q, k, v, normalise):
-    """Computes dot product attention.
+    """computes dot product attention.
 
-    Args:
-    q: queries. tensor of  shape [B,m,d_k].
-    k: keys. tensor of shape [B,n,d_k].
-    v: values. tensor of shape [B,n,d_v].
-    normalise: Boolean that determines whether weights sum to 1.
+    args:
+    q: queries. tensor of  shape [b,m,d_k].
+    k: keys. tensor of shape [b,n,d_k].
+    v: values. tensor of shape [b,n,d_v].
+    normalise: boolean that determines whether weights sum to 1.
 
-    Returns:
-    tensor of shape [B,m,d_v].
+    returns:
+    tensor of shape [b,m,d_v].
     """
     d_k = q.shape[-1]
     scale = np.sqrt(d_k)
-    unnorm_weights = torch.einsum('bjk,bik->bij', k, q) / scale # [B, m, n]
+    unnorm_weights = torch.einsum('bjk,bik->bij', k, q) / scale # [b, m, n]
     if normalise:
-        weight_fn = lambda x: F.softmax(x, dim=-1)
+        weight_fn = lambda x: f.softmax(x, dim=-1)
     else:
-        weight_fn = F.sigmoid
-    weights = weight_fn(unnorm_weights)  # [B,m,n]
-    rep = torch.einsum('bik,bkj->bij', weights, v)  # [B,m,d_v]
+        weight_fn = f.sigmoid
+    weights = weight_fn(unnorm_weights)  # [b,m,n]
+    rep = torch.einsum('bik,bkj->bij', weights, v)  # [b,m,d_v]
     return rep
 
 
-def multihead_attention(q, k, v, Wqs, Wks, Wvs, Wo, num_heads=8):
-    """Computes multi-head attention.
+def multihead_attention(q, k, v, wqs, wks, wvs, wo, num_heads=8):
+    """computes multi-head attention.
 
-    Args:
-    q: queries. tensor of  shape [B,m,d_k].
-    k: keys. tensor of shape [B,n,d_k].
-    v: values. tensor of shape [B,n,d_v].
-    Wqs: list of linear query transformation. [Linear(?, d_k)]
-    Wks: list of linear key transformations. [Linear(?, d_k), ...]
-    Wvs: list of linear value transformations. [Linear(?, d_v), ...]
-    Wo: linear transformation for output of dot-product attention
-    num_heads: number of heads. Should divide d_v.
+    args:
+    q: queries. tensor of  shape [b,m,d_k].
+    k: keys. tensor of shape [b,n,d_k].
+    v: values. tensor of shape [b,n,d_v].
+    wqs: list of linear query transformation. [linear(?, d_k)]
+    wks: list of linear key transformations. [linear(?, d_k), ...]
+    wvs: list of linear value transformations. [linear(?, d_v), ...]
+    wo: linear transformation for output of dot-product attention
+    num_heads: number of heads. should divide d_v.
 
-    Returns:
-    tensor of shape [B,m,d_v].
+    returns:
+    tensor of shape [b,m,d_v].
     """
 
     d_k = q.shape[-1]
@@ -556,34 +556,34 @@ def multihead_attention(q, k, v, Wqs, Wks, Wvs, Wo, num_heads=8):
     rep = 0
 
     for h in range(num_heads):
-        q_h = Wqs[h](q)
-        k_h = Wks[h](k)
-        v_h = Wvs[h](v)
-        o = dot_product_attention(q_h, k_h, v_h, normalise=True)
-        rep += Wo(o)
+        q_h = wqs[h](q)
+        k_h = wks[h](k)
+        v_h = wvs[h](v)
+        o = dot_product_attention(q_h, k_h, v_h, normalise=true)
+        rep += wo(o)
 
     return rep
 
 
-class Attention(nn.Module):
-    """The Attention module."""
+class attention(nn.module):
+    """the attention module."""
 
-    def __init__(self, rep, x_size, r_size, output_sizes, att_type, scale=1., normalise=True,
+    def __init__(self, rep, x_size, r_size, output_sizes, att_type, scale=1., normalise=true,
                num_heads=8):
-        """Create attention module.
+        """create attention module.
 
-        Takes in context inputs, target inputs and
+        takes in context inputs, target inputs and
         representations of each context input/output pair
         to output an aggregated representation of the context data.
-        Args:
+        args:
           rep: transformation to apply to contexts before computing attention.
-              One of: ['identity','mlp'].
+              one of: ['identity','mlp'].
           output_sizes: list of number of hidden units per layer of mlp.
-              Used only if rep == 'mlp'.
-          att_type: type of attention. One of the following:
+              used only if rep == 'mlp'.
+          att_type: type of attention. one of the following:
               ['uniform','laplace','dot_product','multihead']
           scale: scale of attention.
-          normalise: Boolean determining whether to:
+          normalise: boolean determining whether to:
               1. apply softmax to weights so that they sum to 1 across context pts or
               2. apply custom transformation to have weights in [0,1].
           num_heads: number of heads for multihead.
@@ -597,7 +597,7 @@ class Attention(nn.Module):
 
         d_v = r_size
         if self._rep =='mlp':
-            self._mlp = BatchMLP(xy_size=x_size, output_sizes=output_sizes)
+            self._mlp = batchmlp(xy_size=x_size, output_sizes=output_sizes)
             d_k = output_sizes[-1] # dimension of keys and queries
         else:
             d_k = x_size
@@ -605,43 +605,43 @@ class Attention(nn.Module):
         if self._type == 'multihead':
             head_size = d_v // num_heads
             self._num_heads = num_heads
-            self._wqs = nn.ModuleList([
-              BatchMLP(d_k, output_sizes=[head_size])
+            self._wqs = nn.modulelist([
+              batchmlp(d_k, output_sizes=[head_size])
               for h in range(num_heads)
             ])
-            self._wks = nn.ModuleList([
-              BatchMLP(d_k, output_sizes=[head_size])
+            self._wks = nn.modulelist([
+              batchmlp(d_k, output_sizes=[head_size])
               for h in range(num_heads)
             ])
-            self._wvs = nn.ModuleList([
-              BatchMLP(d_v, output_sizes=[head_size])
+            self._wvs = nn.modulelist([
+              batchmlp(d_v, output_sizes=[head_size])
               for h in range(num_heads)
             ])
-            self._wo = BatchMLP(head_size, [d_v])
+            self._wo = batchmlp(head_size, [d_v])
 
     def forward(self, context_x, target_x, r):
-        """Apply attention to create aggregated representation of r.
+        """apply attention to create aggregated representation of r.
 
-        Args:
-          context_x: tensor of shape [B,n1,d_x] (keys)
-          target_x: tensor of shape [B,n2,d_x] (queries)
-          r: tensor of shape [B,n1,d] (values)
+        args:
+          context_x: tensor of shape [b,n1,d_x] (keys)
+          target_x: tensor of shape [b,n2,d_x] (queries)
+          r: tensor of shape [b,n1,d] (values)
 
-        Returns:
-          tensor of shape [B,n2,d]
+        returns:
+          tensor of shape [b,n2,d]
 
-        Raises:
-          NameError: The argument for rep/type was invalid.
+        raises:
+          nameerror: the argument for rep/type was invalid.
         """
         if self._rep == 'identity':
-            target_x *= self._coef # This has grad
+            target_x *= self._coef # this has grad
             k, q = context_x, target_x
         elif self._rep == 'mlp':
-          # Pass through MLP
+          # pass through mlp
             k = self._mlp(context_x)
             q = self._mlp(target_x)
         else:
-            raise NameError("'rep' not among ['identity','mlp']")
+            raise nameerror("'rep' not among ['identity','mlp']")
 
         if self._type == 'uniform':
             rep = uniform_attention(q, r)
@@ -652,33 +652,33 @@ class Attention(nn.Module):
         elif self._type == 'multihead':
             rep = multihead_attention(q, k, r, self._wqs, self._wks, self._wvs, self._wo, self._num_heads)
         else:
-            raise NameError(("'att_type' not among ['uniform','laplace','dot_product'"
+            raise nameerror(("'att_type' not among ['uniform','laplace','dot_product'"
                            ",'multihead']"))
 
         return rep
 
 def plot_functions(target_x, target_y, context_x, context_y, pred_y, std):
-    """Plots the predicted mean and variance and the context points.
+    """plots the predicted mean and variance and the context points.
 
-    Args:
-        target_x: An array of shape [B,num_targets,1] that contains the
+    args:
+        target_x: an array of shape [b,num_targets,1] that contains the
             x values of the target points.
-        target_y: An array of shape [B,num_targets,1] that contains the
+        target_y: an array of shape [b,num_targets,1] that contains the
             y values of the target points.
-        context_x: An array of shape [B,num_contexts,1] that contains
+        context_x: an array of shape [b,num_contexts,1] that contains
             the x values of the context points.
-        context_y: An array of shape [B,num_contexts,1] that contains
+        context_y: an array of shape [b,num_contexts,1] that contains
             the y values of the context points.
-        pred_y: An array of shape [B,num_targets,1] that contains the
+        pred_y: an array of shape [b,num_targets,1] that contains the
             predicted means of the y values at the target points in target_x.
-        std: An array of shape [B,num_targets,1] that contains the
+        std: an array of shape [b,num_targets,1] that contains the
             predicted std dev of the y values at the target points in target_x.
     """
     target_x, target_y = target_x.cpu().detach().numpy(), target_y.cpu().detach().numpy()
     context_x, context_y = context_x.cpu().detach().numpy(), context_y.cpu().detach().numpy()
     pred_y, std = pred_y.cpu().detach().numpy(), std.cpu().detach().numpy()
 
-    # Plot everything
+    # plot everything
     plt.plot(target_x[0], pred_y[0], 'b', linewidth=2)
     plt.plot(target_x[0], target_y[0], 'k:', linewidth=2)
     plt.plot(context_x[0], context_y[0], 'ko', markersize=10)
@@ -688,13 +688,13 @@ def plot_functions(target_x, target_y, context_x, context_y, pred_y, std):
       pred_y[0, :, 0] + std[0, :, 0],
       alpha=0.2,
       facecolor='#65c9f7',
-      interpolate=True)
+      interpolate=true)
 
-    # Make the plot pretty
+    # make the plot pretty
     plt.yticks([-2, 0, 2], fontsize=16)
     plt.xticks([-2, 0, 2], fontsize=16)
     plt.ylim([-2, 2])
-    plt.grid(False)
+    plt.grid(false)
     ax = plt.gca()
     plt.show()
 
@@ -712,8 +712,8 @@ def plot_grad_flow(named_parameters):
     layers = []
     for n, p in named_parameters:
         if(p.requires_grad) and ("bias" not in n):
-            if p.grad is None:
-#                 print("{} HAS NO GRAD".format(n))
+            if p.grad is none:
+#                 print("{} has no grad".format(n))
                 continue
             layers.append(n)
             ave_grads.append(p.grad.abs().mean())
@@ -722,10 +722,10 @@ def plot_grad_flow(named_parameters):
     plt.hlines(0, 0, len(ave_grads)+1, linewidth=1, color="k" )
     plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
     plt.xlim(left=0, right=len(ave_grads))
-    plt.xlabel("Layers")
+    plt.xlabel("layers")
     plt.ylabel("average gradient")
-    plt.title("Gradient flow")
-    plt.grid(True)
+    plt.title("gradient flow")
+    plt.grid(true)
     plt.show()
 
 def split_target_context(ground_truth_image, image_frame, batch_size, X_SIZE, Y_SIZE, min_context_points, max_context_points):

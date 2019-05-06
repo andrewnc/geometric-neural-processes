@@ -1,310 +1,1008 @@
-import matplotlib.pyplot as plt
 import numpy as np
-
-import pickle
-
+import matplotlib.pyplot as plt
+import collections
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-import torch.optim as optim
-from torchvision import datasets, transforms
 
+import pickle
+
+from PIL import Image
+import torchvision.transforms as transforms
+import torch.utils.data as data
+import time
 from tqdm import tqdm
+import sys
 import os
-import utils
+import nltk
+
+sys.path.append("pycocotools")
+from coco import COCO
+from build_vocab import Vocabulary
+
+device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+device = 'cpu'
+print('Using device:', device)
+
+# The (A)NP takes as input a `NPRegressionDescription` namedtuple with fields:
+#   `query`: a tuple containing ((context_x, context_y), target_x)
+#   `target_y`: a tensor containing the ground truth for the targets to be
+#     predicted
+#   `num_total_points`: A vector containing a scalar that describes the total
+#     number of datapoints used (context + target)
+#   `num_context_points`: A vector containing a scalar that describes the number
+#     of datapoints used as context
+# The GPCurvesReader returns the newly sampled data in this format at each
+# iteration
+
+NPRegressionDescription = collections.namedtuple(
+    "NPRegressionDescription",
+    ("query", "target_y", "num_total_points", "num_context_points"))
+
+# TODO: Check the tiling operation, since I have to write it myself.
+def tile(x, multiples):
+    """
+    PyTorch implementation of tf.tile(). See https://stackoverflow.com/a/52259068.
+    Constructs a tensor by tiling a given tensor.
+
+    This operation creates a new tensor by replicating input multiples times.
+    The output tensor's i'th dimension has input.dims(i) * multiples[i] elements, and the values of input are
+    replicated multiples[i] times along the 'i'th dimension.
+    For example, tiling [a b c d] by [2] produces [a b c d a b c d].
+    """
+    return x.repeat(multiples)
 
 
+class GPCurvesReader(object):
+    """Generates curves using a Gaussian Process (GP).
 
-use_cuda = True
-device = torch.device("cuda" if use_cuda else "cpu")
-    
+    Supports vector inputs (x) and vector outputs (y). Kernel is
+    mean-squared exponential, using the x-value l2 coordinate distance scaled by
+    some factor chosen randomly in a range. Outputs are independent gaussian
+    processes.
+    """
 
-class MNISTEncoder(nn.Module):
-    """takes in context points and returns a fixed length aggregation"""
-    def __init__(self):
-        super(MNISTEncoder, self).__init__()
-        self.fc1 = nn.Linear(3, 16)
-        self.fc2 = nn.Linear(16, 32)
-        self.fc3 = nn.Linear(32, 64)
-        self.fc4 = nn.Linear(64, 128)
-        
+    def __init__(self,
+               batch_size,
+               max_num_context,
+               x_size=1,
+               y_size=1,
+               l1_scale=0.6,
+               sigma_scale=1.0,
+               random_kernel_parameters=True,
+               testing=False):
+        """Creates a regression dataset of functions sampled from a GP.
+
+        Args:
+          batch_size: An integer.
+          max_num_context: The max number of observations in the context.
+          x_size: Integer >= 1 for length of "x values" vector.
+          y_size: Integer >= 1 for length of "y values" vector.
+          l1_scale: Float; typical scale for kernel distance function.
+          sigma_scale: Float; typical scale for variance.
+          random_kernel_parameters: If `True`, the kernel parameters (l1 and sigma)
+              will be sampled uniformly within [0.1, l1_scale] and [0.1, sigma_scale].
+          testing: Boolean that indicates whether we are testing. If so there are
+              more targets for visualization.
+        """
+        self._batch_size = batch_size
+        self._max_num_context = max_num_context
+        self._x_size = x_size
+        self._y_size = y_size
+        self._l1_scale = l1_scale
+        self._sigma_scale = sigma_scale
+        self._random_kernel_parameters = random_kernel_parameters
+        self._testing = testing
+
+    def _gaussian_kernel(self, xdata, l1, sigma_f, sigma_noise=2e-2):
+        """Applies the Gaussian kernel to generate curve data.
+
+        Args:
+          xdata: Tensor of shape [B, num_total_points, x_size] with
+              the values of the x-axis data.
+          l1: Tensor of shape [B, y_size, x_size], the scale
+              parameter of the Gaussian kernel.
+          sigma_f: Tensor of shape [B, y_size], the magnitude
+              of the std.
+          sigma_noise: Float, std of the noise that we add for stability.
+
+        Returns:
+          The kernel, a float tensor of shape
+          [B, y_size, num_total_points, num_total_points].
+        """
+        num_total_points = xdata.shape[1]
+
+        # Expand and take the difference
+        xdata1 = xdata.unsqueeze(1) # [B, 1, num_total_points, x_size]
+        xdata2 = xdata.unsqueeze(2) # [B, num_total_points, 1, x_size]
+        diff = xdata1 - xdata2  # [B, num_total_points, num_total_points, x_size]
+
+        norm = (diff[:, None, :, :, :] / l1[:, :, None, None, :]) ** 2
+        norm = norm.sum(dim=-1) # [B, data_size, num_total_points, num_total_points]
+
+        kernel = (sigma_f ** 2)[:, :, None, None] * torch.exp(-0.5 * norm)
+        # Add some noise to the diagonal to make the cholesky work.
+        kernel += (sigma_noise ** 2) * torch.eye(num_total_points)
+
+        return kernel
+
+    def generate_curves(self):
+        """Builds the op delivering the data.
+
+        Generated functions are `float32` with x values between -2 and 2.
+
+        Returns:
+          A `NPRegressionDescription` namedtuple.
+        """
+        num_context = torch.empty(1).uniform_(3, self._max_num_context).int().item()
+
+        # If we are testing we want to have more targets and have them evenly
+        # distributed in order to plot the function.
+        if self._testing:
+            num_target = 400
+            num_total_points = num_target
+            x_values = tile(
+            torch.arange(-2, 2, 0.01).unsqueeze(0),
+            (self._batch_size, 1)
+            )
+            x_values = x_values.unsqueeze(-1)
+        # During training the number of target points and their x-positions are
+        # selected at random
+        else:
+            num_target = torch.randint(0, self._max_num_context - num_context, size=())
+            num_total_points = num_context + num_target
+            x_values = torch.FloatTensor(self._batch_size, num_total_points, self._x_size).uniform_(-2, 2)
+
+        # Set kernel parameters
+        # Either choose a set of random parameters for the mini-batch
+        if self._random_kernel_parameters:
+            l1 = torch.FloatTensor(self._batch_size, self._y_size, self._x_size).uniform_(0.1, self._sigma_scale)
+            sigma_f = torch.FloatTensor(self._batch_size, self._y_size).uniform_(0.1, self._sigma_scale)
+        # Or use the same fixed parameters for all mini-batches
+        else:
+            l1 = torch.ones(self._batch_size, self._y_size, self._x_size) * self._l1_scale
+            sigma_f = torch.ones(self._batch_size, self._y_size) * self._sigma_scale
+
+        # Pass the x_values through the Gaussian kernel
+        kernel = self._gaussian_kernel(x_values, l1, sigma_f) # [batch_size, y_size, num_total_points, num_total_points] afterwards
+
+        # Calculate Cholesky, using double precision for better stability:
+        cholesky = torch.cholesky(kernel.double()).float()
+
+        # Sample a curve
+        # [batch_size, y_size, num_total_points, 1]
+        y_values = cholesky @ torch.randn(self._batch_size, self._y_size, num_total_points, 1)
+
+        # [batch_size, num_total_points, y_size]
+        y_values = y_values.squeeze(3).permute(0, 2, 1)
+
+        if self._testing:
+            # Select the targets
+            target_x = x_values
+            target_y = y_values
+
+            # Select the observations
+            idx = torch.randperm(num_target)
+            idx_context = idx[:num_context].unsqueeze(0).unsqueeze(2) # torch.gather differs from tf.gather
+            context_x = torch.gather(input=x_values, dim=1, index=idx_context)
+            context_y = torch.gather(input=y_values, dim=1, index=idx_context)
+
+        else:
+            # Select the targets which will consist of the context points as well as
+            # some new target points
+            target_x = x_values[:, :num_target + num_context, :]
+            target_y = y_values[:, :num_target + num_context, :]
+
+            # Select the observations
+            context_x = x_values[:, :num_context, :]
+            context_y = y_values[:, :num_context, :]
+
+        query = ((context_x.to(device), context_y.to(device)), target_x.to(device))
+
+        return NPRegressionDescription(
+        query=query,
+        target_y=target_y.to(device),
+        num_total_points=target_x.shape[1],
+        num_context_points=num_context)
+
+# Pytorch doesn't recognize a list of nn.Modules, so we have to use the nn.ModuleList construct
+class BatchMLP(nn.Module):
+    def __init__(self, xy_size, output_sizes):
+        super().__init__()
+        self.output_sizes = output_sizes
+
+        self.layers = nn.ModuleList([nn.Linear(xy_size, output_sizes[0])] + [
+            nn.Linear(output_sizes[i-1], output_sizes[i])
+            for i in range(1, len(output_sizes))
+        ])
+
 
     def forward(self, x):
-        """x = sparsely sampled image
-        this returns the aggregated r value
+        # Get the shapes of the input and reshape to parallelise across observations
+        batch_size, _, xy_size = x.shape
+        x = x.contiguous().view(-1, xy_size)
+
+        for layer in self.layers[:-1]:
+            x = F.relu(layer(x))
+        x = self.layers[-1](x)
+
+        # Bring back into original shape
+        x = x.view(batch_size, -1, self.output_sizes[-1])
+        return x
+
+class DeterministicEncoder(nn.Module):
+    """The Deterministic Encoder."""
+
+    def __init__(self, xy_size, output_sizes, attention):
+        """(A)NP deterministic encoder.
+
+        Args:
+          output_sizes: An iterable containing the output sizes of the encoding MLP.
+          attention: The attention module.
+        """
+        super().__init__()
+        self._output_sizes = output_sizes
+        self._attention = attention
+
+        self._mlp = BatchMLP(xy_size, output_sizes)
+
+    def forward(self, context_x, context_y, target_x):
+        """Encodes the inputs into one representation.
+
+        Args:
+          context_x: Tensor of shape [B,observations,d_x]. For this 1D regression
+              task this corresponds to the x-values.
+          context_y: Tensor of shape [B,observations,d_y]. For this 1D regression
+              task this corresponds to the y-values.
+          target_x: Tensor of shape [B,target_observations,d_x].
+              For this 1D regression task this corresponds to the x-values.
+
+        Returns:
+          The encoded representation. Tensor of shape [B,target_observations,d]
         """
 
-        output = self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(x)))))))
+        # Concatenate x and y along the filter axes
+        encoder_input = torch.cat([context_x, context_y], dim=-1)
 
-        return output.mean(0).view(1, 128)
+        # Pass final axis through MLP
+        hidden = self._mlp(encoder_input)
 
-class MNISTLatentEncoder(nn.Module):
-    """takes in context points and returns a fixed length aggregation"""
-    def __init__(self):
-        super(MNISTLatentEncoder, self).__init__()
-        self.fc1 = nn.Linear(3, 16)
-        self.fc2 = nn.Linear(16, 32)
-        self.fc3 = nn.Linear(32, 64)
-        self.fc4 = nn.Linear(64, 128)
-        self.fc5 = nn.Linear(128, 128)
-        self.mu_latent = nn.Linear(128,1)
-        self.sigma_latent = nn.Linear(128,1)
-        
+        # Apply attention
+        hidden = self._attention(context_x, target_x, hidden)
 
-    def forward(self, x):
-        """x = sparsely sampled image
-        this returns the aggregated r value
+        return hidden
+
+# We have varying input dimensions - [B, observations, d_xandy]
+class LatentEncoder(nn.Module):
+    """The Latent Encoder."""
+
+    def __init__(self, xy_size, output_sizes, num_latents):
+        """(A)NP latent encoder.
+
+        Args:
+          output_sizes: An iterable containing the output sizes of the encoding MLP.
+          num_latents: The latent dimensionality.
+        """
+        super().__init__()
+        self._output_sizes = output_sizes
+        self._num_latents = num_latents
+        self._xy_size = xy_size
+
+        self._mlp = BatchMLP(xy_size=xy_size, output_sizes=output_sizes)
+
+        n_hidden = (self._output_sizes[-1] + self._num_latents) // 2
+        self.penultimate = nn.Linear(output_sizes[-1], n_hidden)
+        self.mean = nn.Linear(n_hidden, self._num_latents)
+        self.log_sigma = nn.Linear(n_hidden, self._num_latents)
+
+    def forward(self, x, y):
+        """Encodes the inputs into one representation.
+
+        Args:
+          x: Tensor of shape [B,observations,d_x]. For this 1D regression
+              task this corresponds to the x-values.
+          y: Tensor of shape [B,observations,d_y]. For this 1D regression
+              task this corresponds to the y-values.
+
+        Returns:
+          A normal distribution over tensors of shape [B, num_latents]
         """
 
-        output = self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(x)))))))
+        # Concatenate x and y along the filter axes
+        encoder_input = torch.cat([x, y], dim=-1)
 
-        hidden = output.mean(0).view(1, 128)
+        # Pass final axis through MLP
+        hidden = self._mlp(encoder_input)
 
-        #first pass through intermediate relu layer
-        hidden = F.relu(self.fc5(hidden))
+        # Aggregator: take the mean over all points
+        hidden = torch.mean(hidden, dim=1)
 
-        #then pass through these other layers
-        mu = self.mu_latent(hidden)
-        sigma = self.sigma_latent(hidden)
+        # Have further MLP layers that map to the parameters of the Gaussian latent
+        hidden = F.relu(self.penultimate(hidden))
+        mu = self.mean(hidden)
+        log_sigma = self.log_sigma(hidden)
 
-        sigma = 0.1 + 0.9*F.softplus(sigma)
-        return torch.distributions.Normal(loc=mu, scale=sigma), mu, sigma 
+        # Compute sigma
+        sigma = 0.1 + 0.9 * F.softplus(log_sigma) # CHANGE: Original had a sigmoid instead, but that led to vanishing gradients
 
+        return torch.distributions.Normal(loc=mu, scale=sigma)
 
-class MNISTDecoder(nn.Module):
-    def __init__(self, m, n):
-        super(MNISTDecoder, self).__init__()
-        self.m = m
-        self.n = n
-        self.fc1 = nn.Linear(130, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.fc3 = nn.Linear(64, 32)
-        self.fc4 = nn.Linear(32, 1)
-        
-    def forward(self, out):
-        """r is the aggregated data used to condition, out is the concatenation with the frame"""        
+class Decoder(nn.Module):
+    """The Decoder."""
 
-        h = self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(out)))))))
-        return h
-        mu = h[:,0]
-        log_sigma = h[:,1]
+    def __init__(self, input_size, output_sizes):
+        """(A)NP decoder.
 
-        # bound the variance
+        Args:
+          output_sizes: An iterable containing the output sizes of the decoder MLP
+              as defined in `basic.Linear`.
+        """
+        super().__init__()
+        self._output_sizes = output_sizes
+        self._mlp = BatchMLP(xy_size=input_size, output_sizes=output_sizes)
+
+    def forward(self, representation, target_x):
+        """Decodes the individual targets.
+
+        Args:
+          representation: The representation of the context for target predictions.
+              Tensor of shape [B,target_observations,?].
+          target_x: The x locations for the target query.
+              Tensor of shape [B,target_observations,d_x].
+
+        Returns:
+          dist: A multivariate Gaussian over the target points. A distribution over
+              tensors of shape [B,target_observations,d_y].
+          mu: The mean of the multivariate Gaussian.
+              Tensor of shape [B,target_observations,d_x]. # TODO: Should this be d_y?
+          sigma: The standard deviation of the multivariate Gaussian.
+              Tensor of shape [B,target_observations,d_x]. # TODO: Should this be d_y?
+        """
+        # concatenate target_x and representation
+        hidden = torch.cat([representation, target_x], dim=-1)
+
+        # Pass final axis through MLP
+        hidden = self._mlp(hidden)
+
+        # Get the mean an the variance
+        mu, log_sigma = torch.split(hidden, hidden.shape[-1] // 2, dim=-1) # Split the last dimension in two
+
+        # Bound the variance
         sigma = 0.1 + 0.9 * F.softplus(log_sigma)
-        
-        return mu, sigma
+        # mu, sigma are each [batch, n_observations, 1] tensors
 
-class MNISTLatentDecoder(nn.Module):
-    def __init__(self, m, n):
-        super(MNISTLatentDecoder, self).__init__()
-        self.m = m
-        self.n = n
-        self.fc1 = nn.Linear(131, 128)
-        self.fc2 = nn.Linear(128, 64)
-        self.fc3 = nn.Linear(64, 32)
-        self.fc4 = nn.Linear(32, 2)
-        
-    def forward(self, out):
-        """r is the aggregated data used to condition, out is the concatenation with the frame"""        
+        # Get the distribution
+        sigma_diag = torch.diag_embed(sigma.squeeze(-1)) # [batch, n_observations, n_observations]
+        sigma_diag = torch.diag_embed(sigma) # [batch, n_observations, d_y, d_y]
+        dist = torch.distributions.MultivariateNormal(
+            loc=mu, scale_tril=sigma_diag)
 
-        h = self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(out)))))))
-        # return h
-        mu = h[:,0]
-        log_sigma = h[:,1]
-
-        # bound the variance
-        sigma = 0.1 + 0.9 * F.softplus(log_sigma)
-        
-        return mu, sigma
-
-
-class FCCritic(nn.Module):
-    def __init__(self):
-        super(FCCritic, self).__init__()
-        self.fc1 = nn.Linear(28*28, 2*28*28) 
-        self.fc2 = nn.Linear(2*28*28, 3*28*28) 
-        self.fc3 =nn.Linear(3*28*28, 2*28*28) 
-        self.fc4 =nn.Linear(2*28*28, 1*28*28) 
-        self.output = nn.Linear(1*28*28, 1)
-
-    def forward(self, x):
-        x = x.view(-1, 28*28)
-        out = self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(x)))))))
-        out = self.output(out)
-        return out.view(-1)
-
+        return dist, mu, sigma
 
 class Critic(nn.Module):
-    def __init__(self):
-        super(Critic, self).__init__()
-        self.conv1 = nn.Conv2d(1, 64, kernel_size=5, stride=2, padding=2)
-        self.conv2 = nn.Conv2d(64, 2*64, kernel_size=5, stride=2, padding=2)
-        self.conv3 = nn.Conv2d(2*64, 4*64, kernel_size=5, stride=2, padding=2)
-        self.output = nn.Linear(4*4*4*64, 1)
-
+    """critic used to learn the wasserstein distance"""
+    def __init__(self, x_size, y_size):
+        super().__init__()
+        self.x_size = x_size
+        self.y_size = y_size
+    
     def forward(self, x):
-        x = x.view(-1, 1, 28, 28)
-        out = self.conv3(F.relu(self.conv2(F.relu(self.conv1(x)))))
-        out = out.view(-1, 4*4*4*64)
-        out = self.output(out)
-        return out.view(-1)
+        print("you are running the critic")
+        return x
+
+
+class LatentModel(nn.Module):
+    """The (A)NP model."""
+
+    def __init__(self, x_size, y_size, latent_encoder_output_sizes, num_latents,
+               decoder_output_sizes, use_deterministic_path=True,
+               deterministic_encoder_output_sizes=None, attention=None, loss_type="std"):
+        """Initialises the model.
+
+        Args:
+          latent_encoder_output_sizes: An iterable containing the sizes of hidden
+              layers of the latent encoder.
+          num_latents: The latent dimensionality.
+          decoder_output_sizes: An iterable containing the sizes of hidden layers of
+              the decoder. The last element should correspond to d_y * 2
+              (it encodes both mean and variance concatenated)
+          use_deterministic_path: a boolean that indicates whether the deterministic
+              encoder is used or not.
+          deterministic_encoder_output_sizes: An iterable containing the sizes of
+              hidden layers of the deterministic encoder. The last one is the size
+              of the deterministic representation r.
+          attention: The attention module used in the deterministic encoder.
+              Only relevant when use_deterministic_path=True.
+        """
+        super().__init__()
+        self._xy_size = x_size + y_size
+        self.loss_type = loss_type
+
+        self._latent_encoder = LatentEncoder(xy_size=self._xy_size, output_sizes=latent_encoder_output_sizes,
+                                             num_latents=num_latents)
+        self._use_deterministic_path = use_deterministic_path
+        if use_deterministic_path:
+            self._deterministic_encoder = DeterministicEncoder(
+              self._xy_size, deterministic_encoder_output_sizes, attention)
+
+        decoder_input_size = latent_encoder_output_sizes[-1] + x_size
+        if use_deterministic_path:
+            decoder_input_size += deterministic_encoder_output_sizes[-1]
+        self._decoder = Decoder(decoder_input_size, decoder_output_sizes)
+
+
+
+    def forward(self, query, num_targets, target_y=None):
+        """Returns the predicted mean and variance at the target points.
+
+        Args:
+          query: Array containing ((context_x, context_y), target_x) where:
+              context_x: Tensor of shape [B,num_contexts,d_x].
+                  Contains the x values of the context points.
+              context_y: Tensor of shape [B,num_contexts,d_y].
+                  Contains the y values of the context points.
+              target_x: Tensor of shape [B,num_targets,d_x].
+                  Contains the x values of the target points.
+          num_targets: Number of target points.
+          target_y: The ground truth y values of the target y.
+              Tensor of shape [B,num_targets,d_y].
+
+        Returns:
+          log_p: The log_probability of the target_y given the predicted
+              distribution. Tensor of shape [B,num_targets].
+          mu: The mean of the predicted distribution.
+              Tensor of shape [B,num_targets,d_y].
+          sigma: The variance of the predicted distribution.
+              Tensor of shape [B,num_targets,d_y].
+        """
+
+        (context_x, context_y), target_x = query
+
+        # Pass query through the encoder and the decoder
+        prior = self._latent_encoder(context_x, context_y)
+
+        # For training, when target_y is available, use targets for latent encoder.
+        # Note that targets contain contexts by design.
+        if target_y is None:
+            latent_rep = prior.rsample()
+        # For testing, when target_y unavailable, use contexts for latent encoder.
+        else:
+            posterior = self._latent_encoder(target_x, target_y)
+            latent_rep = posterior.rsample() # CHANGE: I used rsample() instead of sample() for better gradient flow
+
+        latent_rep = tile(latent_rep.unsqueeze(1), [1, num_targets, 1])
+        if self._use_deterministic_path:
+            deterministic_rep = self._deterministic_encoder(context_x, context_y, target_x)
+            representation = torch.cat([deterministic_rep, latent_rep], dim=-1)
+        else:
+            representation = latent_rep
+
+        dist, mu, sigma = self._decoder(representation, target_x)
+
+        # If we want to calculate the log_prob for training we will make use of the
+        # target_y. At test time the target_y is not available so we return None.
+
+        if self.loss_type == "wass":
+            if target_y is not None:
+                log_p = dist.log_prob(target_y)
+                    # log_p[log_p != log_p] = 0
+
+                posterior = self._latent_encoder(target_x, target_y)
+                wass_dist = torch.norm(posterior.loc - prior.loc)**2 + torch.trace(posterior.scale) + torch.trace(prior.scale) - 2*torch.trace(torch.sqrt(torch.sqrt(posterior.scale)*prior.scale*torch.sqrt(posterior.scale)))
+                wass_dist = tile(wass_dist, [1, num_targets])
+                loss = - torch.mean(log_p - wass_dist / num_targets)
+                kl = wass_dist # this is merely for the return value, and because I'm lazy
+            else:
+                log_p = None
+                kl = None
+                loss = None
+        elif self.loss_type == "std":
+            if target_y is not None:
+                log_p = dist.log_prob(target_y)
+                posterior = self._latent_encoder(target_x, target_y)
+                kl = torch.distributions.kl.kl_divergence(posterior, prior).sum(dim=-1, keepdim=True)
+                kl = tile(kl, [1, num_targets])
+                loss = - torch.mean(log_p - kl / num_targets)
+            else:
+                log_p = None
+                kl = None
+                loss = None
+
+        return mu, sigma, log_p, kl, loss
+
+def uniform_attention(q, v):
+    """Uniform attention. Equivalent to np.
+
+    Args:
+    q: queries. tensor of shape [B,m,d_k].
+    v: values. tensor of shape [B,n,d_v].
+
+    Returns:
+    tensor of shape [B,m,d_v].
+    """
+    total_points = q.shape[1]
+    rep = v.mean(dim=1, keepdim=True)
+    rep = tile(rep, [1, total_points, 1])
+    return rep
+
+def laplace_attention(q, k, v, scale, normalise):
+    """Computes laplace exponential attention.
+
+    Args:
+    q: queries. tensor of shape [B,m,d_k].
+    k: keys. tensor of shape [B,n,d_k].
+    v: values. tensor of shape [B,n,d_v].
+    scale: float that scales the L1 distance.
+    normalise: Boolean that determines whether weights sum to 1.
+
+    Returns:
+    tensor of shape [B,m,d_v].
+    """
+    k = k.unsqueeze(1)
+    q = q.unsqueeze(2)
+    unnorm_weights = -torch.abs((k - q) / scale)
+    unnorm_weights = unnorm_weights.sum(dim=-1) #[B,m,n]
+    if normalise:
+        weight_fn = lambda x: F.softmax(x, dim=-1)
+    else:
+        weight_fn = lambda x: 1 + F.tanh(x)
+    weights = weight_fn(unnorm_weights)  # [B,m,n]
+    rep = torch.einsum('bik,bkj->bij', weights, v)
+    return rep
+
+def dot_product_attention(q, k, v, normalise):
+    """Computes dot product attention.
+
+    Args:
+    q: queries. tensor of  shape [B,m,d_k].
+    k: keys. tensor of shape [B,n,d_k].
+    v: values. tensor of shape [B,n,d_v].
+    normalise: Boolean that determines whether weights sum to 1.
+
+    Returns:
+    tensor of shape [B,m,d_v].
+    """
+    d_k = q.shape[-1]
+    scale = np.sqrt(d_k)
+    unnorm_weights = torch.einsum('bjk,bik->bij', k, q) / scale # [B, m, n]
+    if normalise:
+        weight_fn = lambda x: F.softmax(x, dim=-1)
+    else:
+        weight_fn = F.sigmoid
+    weights = weight_fn(unnorm_weights)  # [B,m,n]
+    rep = torch.einsum('bik,bkj->bij', weights, v)  # [B,m,d_v]
+    return rep
+
+
+def multihead_attention(q, k, v, Wqs, Wks, Wvs, Wo, num_heads=8):
+    """Computes multi-head attention.
+
+    Args:
+    q: queries. tensor of  shape [B,m,d_k].
+    k: keys. tensor of shape [B,n,d_k].
+    v: values. tensor of shape [B,n,d_v].
+    Wqs: list of linear query transformation. [Linear(?, d_k)]
+    Wks: list of linear key transformations. [Linear(?, d_k), ...]
+    Wvs: list of linear value transformations. [Linear(?, d_v), ...]
+    Wo: linear transformation for output of dot-product attention
+    num_heads: number of heads. Should divide d_v.
+
+    Returns:
+    tensor of shape [B,m,d_v].
+    """
+
+    d_k = q.shape[-1]
+    d_v = v.shape[-1]
+    head_size = d_v / num_heads
+    rep = 0
+
+    for h in range(num_heads):
+        q_h = Wqs[h](q)
+        k_h = Wks[h](k)
+        v_h = Wvs[h](v)
+        o = dot_product_attention(q_h, k_h, v_h, normalise=True)
+        rep += Wo(o)
+
+    return rep
+
+
+class Attention(nn.Module):
+    """The Attention module."""
+
+    def __init__(self, rep, x_size, r_size, output_sizes, att_type, scale=1., normalise=True,
+               num_heads=8):
+        """Create attention module.
+
+        Takes in context inputs, target inputs and
+        representations of each context input/output pair
+        to output an aggregated representation of the context data.
+        Args:
+          rep: transformation to apply to contexts before computing attention.
+              One of: ['identity','mlp'].
+          output_sizes: list of number of hidden units per layer of mlp.
+              Used only if rep == 'mlp'.
+          att_type: type of attention. One of the following:
+              ['uniform','laplace','dot_product','multihead']
+          scale: scale of attention.
+          normalise: Boolean determining whether to:
+              1. apply softmax to weights so that they sum to 1 across context pts or
+              2. apply custom transformation to have weights in [0,1].
+          num_heads: number of heads for multihead.
+        """
+        super().__init__()
+        self._rep = rep
+        self._output_sizes = output_sizes
+        self._type = att_type
+        self._scale = scale
+        self._normalise = normalise
+
+        d_v = r_size
+        if self._rep =='mlp':
+            self._mlp = BatchMLP(xy_size=x_size, output_sizes=output_sizes)
+            d_k = output_sizes[-1] # dimension of keys and queries
+        else:
+            d_k = x_size
+
+        if self._type == 'multihead':
+            head_size = d_v // num_heads
+            self._num_heads = num_heads
+            self._wqs = nn.ModuleList([
+              BatchMLP(d_k, output_sizes=[head_size])
+              for h in range(num_heads)
+            ])
+            self._wks = nn.ModuleList([
+              BatchMLP(d_k, output_sizes=[head_size])
+              for h in range(num_heads)
+            ])
+            self._wvs = nn.ModuleList([
+              BatchMLP(d_v, output_sizes=[head_size])
+              for h in range(num_heads)
+            ])
+            self._wo = BatchMLP(head_size, [d_v])
+
+    def forward(self, context_x, target_x, r):
+        """Apply attention to create aggregated representation of r.
+
+        Args:
+          context_x: tensor of shape [B,n1,d_x] (keys)
+          target_x: tensor of shape [B,n2,d_x] (queries)
+          r: tensor of shape [B,n1,d] (values)
+
+        Returns:
+          tensor of shape [B,n2,d]
+
+        Raises:
+          NameError: The argument for rep/type was invalid.
+        """
+        if self._rep == 'identity':
+            target_x *= self._coef # This has grad
+            k, q = context_x, target_x
+        elif self._rep == 'mlp':
+          # Pass through MLP
+            k = self._mlp(context_x)
+            q = self._mlp(target_x)
+        else:
+            raise NameError("'rep' not among ['identity','mlp']")
+
+        if self._type == 'uniform':
+            rep = uniform_attention(q, r)
+        elif self._type == 'laplace':
+            rep = laplace_attention(q, k, r, self._scale, self._normalise)
+        elif self._type == 'dot_product':
+            rep = dot_product_attention(q, k, r, self._normalise)
+        elif self._type == 'multihead':
+            rep = multihead_attention(q, k, r, self._wqs, self._wks, self._wvs, self._wo, self._num_heads)
+        else:
+            raise NameError(("'att_type' not among ['uniform','laplace','dot_product'"
+                           ",'multihead']"))
+
+        return rep
+
+def plot_functions(target_x, target_y, context_x, context_y, pred_y, std, outfile=""):
+    """Plots the predicted mean and variance and the context points.
+
+    Args:
+        target_x: An array of shape [B,num_targets,1] that contains the
+            x values of the target points.
+        target_y: An array of shape [B,num_targets,1] that contains the
+            y values of the target points.
+        context_x: An array of shape [B,num_contexts,1] that contains
+            the x values of the context points.
+        context_y: An array of shape [B,num_contexts,1] that contains
+            the y values of the context points.
+        pred_y: An array of shape [B,num_targets,1] that contains the
+            predicted means of the y values at the target points in target_x.
+        std: An array of shape [B,num_targets,1] that contains the
+            predicted std dev of the y values at the target points in target_x.
+    """
+    target_x, target_y = target_x.cpu().detach().numpy(), target_y.cpu().detach().numpy()
+    context_x, context_y = context_x.cpu().detach().numpy(), context_y.cpu().detach().numpy()
+    pred_y, std = pred_y.cpu().detach().numpy(), std.cpu().detach().numpy()
+
+    # Plot everything
+    plt.plot(target_x[0], pred_y[0], 'b', linewidth=2)
+    plt.plot(target_x[0], target_y[0], 'k:', linewidth=2)
+    plt.plot(context_x[0], context_y[0], 'ko', markersize=10)
+    plt.fill_between(
+      target_x[0, :, 0],
+      pred_y[0, :, 0] - std[0, :, 0],
+      pred_y[0, :, 0] + std[0, :, 0],
+      alpha=0.2,
+      facecolor='#65c9f7',
+      interpolate=True)
+
+    # Make the plot pretty
+    plt.yticks([-2, 0, 2], fontsize=16)
+    plt.xticks([-2, 0, 2], fontsize=16)
+    plt.ylim([-2, 2])
+    plt.grid(False)
+    ax = plt.gca()
+    plt.savefig(outfile)
+    plt.close()
+
+def plot_grad_flow(named_parameters):
+    ave_grads = []
+    layers = []
+    for n, p in named_parameters:
+        if(p.requires_grad) and ("bias" not in n):
+            if p.grad is None:
+#                 print("{} HAS NO GRAD".format(n))
+                continue
+            layers.append(n)
+            ave_grads.append(p.grad.abs().mean())
+#             print("{}: {:.3e}".format(n, ave_grads[-1]))
+    plt.plot(ave_grads, alpha=0.3, color="b")
+    plt.hlines(0, 0, len(ave_grads)+1, linewidth=1, color="k" )
+    plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
+    plt.xlim(left=0, right=len(ave_grads))
+    plt.xlabel("Layers")
+    plt.ylabel("average gradient")
+    plt.title("Gradient flow")
+    plt.grid(True)
+    plt.show()
+
+class DegenerateCurves(object):
+    def __init__(self, batch_size=1, x_size=1, y_size=1, max_num_context=20, n=128, x_min=0, x_max=1):
+        self.batch_size = batch_size
+        self.x_size = x_size
+        self.y_size = y_size
+        self.max_num_context = max_num_context # this should be less than n
+        self.n = n
+        self.x_min = x_min
+        self.x_max = x_max
+
+    def generate_curves(self):
+        full_curve = []
+        curve = np.linspace(self.x_min, self.x_max, self.n)
+        for _ in range(self.batch_size):
+            full_curve.append(curve)
+
+        full_curve = np.array(full_curve)
+        target_x, target_y = torch.zeros_like(torch.Tensor(full_curve), requires_grad=True), torch.Tensor(full_curve)
+
+
+        num_context = np.random.randint(1, self.max_num_context)
+        # mask = np.random.choice([0,1], size=(self.batch_size,self.n), p=[1-context_points_percentage/(self.n), context_points_percentage/(self.n)])
+        mask = np.zeros(self.n)
+        mask[:num_context] = 1
+        full_mask = np.vstack([np.random.permutation(mask) for x in range(self.batch_size)])
+        context_y = []
+        for i, mask in enumerate(full_mask):
+            context_y.append(full_curve[i, mask == 1])
+        context_y = torch.Tensor(context_y)
+        context_x = torch.zeros_like(context_y)
+        
+        query = ((context_x.view(self.batch_size, num_context, 1).to(device), context_y.view(self.batch_size, num_context, 1).to(device)), target_x.view(self.batch_size, self.n, 1).to(device))
+
+        return NPRegressionDescription(
+        query=query,
+        target_y=target_y.view(self.batch_size, self.n, 1).to(device),
+        num_total_points=target_x.shape[1],
+        num_context_points=num_context)
+
+class CocoDataset(data.Dataset):
+    """COCO Custom Dataset compatible with torch.utils.data.DataLoader."""
+    def __init__(self, root, json, vocab, transform=None):
+        """Set the path for images, captions and vocabulary wrapper.
+        
+        Args:
+            root: image directory.
+            json: coco annotation file path.
+            vocab: vocabulary wrapper.
+            transform: image transformer.
+        """
+        self.root = root
+        self.coco = COCO(json)
+        self.ids = list(self.coco.anns.keys())
+        self.vocab = vocab
+        self.transform = transform
+
+    def __getitem__(self, index):
+        """Returns one data pair (image and caption)."""
+        coco = self.coco
+        vocab = self.vocab
+        ann_id = self.ids[index]
+        caption = coco.anns[ann_id]['caption']
+        img_id = coco.anns[ann_id]['image_id']
+        path = coco.loadImgs(img_id)[0]['file_name']
+
+        image = Image.open(os.path.join(self.root, path)).convert('RGB')
+        if self.transform is not None:
+            image = self.transform(image)
+
+        # Convert caption (string) to word ids.
+        tokens = nltk.tokenize.word_tokenize(str(caption).lower())
+        caption = []
+        caption.append(vocab('<start>'))
+        caption.extend([vocab(token) for token in tokens])
+        caption.append(vocab('<end>'))
+        image = torch.Tensor(np.array(image))
+        target = torch.Tensor(caption)
+        return image, target
+
+    def __len__(self):
+        return len(self.ids)
+
+
+def collate_fn(data):
+    """Creates mini-batch tensors from the list of tuples (image, caption).
+    
+    We should build custom collate_fn rather than using default collate_fn, 
+    because merging caption (including padding) is not supported in default.
+    Args:
+        data: list of tuple (image, caption). 
+            - image: torch tensor of shape (3, 256, 256).
+            - caption: torch tensor of shape (?); variable length.
+    Returns:
+        images: torch tensor of shape (batch_size, 3, 256, 256).
+        targets: torch tensor of shape (batch_size, padded_length).
+        lengths: list; valid length for each padded caption.
+    """
+    # Sort a data list by caption length (descending order).
+    data.sort(key=lambda x: len(x[1]), reverse=True)
+    images, captions = zip(*data)
+
+    # Merge images (from tuple of 3D tensor to 4D tensor).
+    images = torch.stack(images, 0)
+
+    # Merge captions (from tuple of 1D tensor to 2D tensor).
+    lengths = [len(cap) for cap in captions]
+    targets = torch.zeros(len(captions), max(lengths)).long()
+    for i, cap in enumerate(captions):
+        end = lengths[i]
+        targets[i, :end] = cap[:end]        
+    return images, targets, lengths
+
+def get_coco_loader(root, json, vocab, transform, batch_size, shuffle, num_workers):
+    """Returns torch.utils.data.DataLoader for custom coco dataset."""
+    # COCO caption dataset
+    coco = CocoDataset(root=root,
+                       json=json,
+                       vocab=vocab,
+                       transform=transform)
+    
+    # Data loader for COCO dataset
+    # This will return (images, captions, lengths) for each iteration.
+    # images: a tensor of shape (batch_size, 3, 224, 224).
+    # captions: a tensor of shape (batch_size, padded_length).
+    # lengths: a list indicating valid length for each caption. length is (batch_size).
+    data_loader = torch.utils.data.DataLoader(dataset=coco, 
+                                              batch_size=batch_size,
+                                              shuffle=shuffle,
+                                              num_workers=num_workers,
+                                              collate_fn=collate_fn)
+    return data_loader
+
+def get_sentence(target, vocab):
+    return " ".join([vocab.idx2word[x.item()] for x in target])
+
+def train_regression():
+    TRAINING_ITERATIONS = 100000 #@param {type:"number"}
+    MAX_CONTEXT_POINTS = 50 #@param {type:"number"}
+    PLOT_AFTER = 100 #10000 #@param {type:"number"}
+    HIDDEN_SIZE = 128 #@param {type:"number"}
+    MODEL_TYPE = 'ANP' #@param ['NP','ANP']
+    ATTENTION_TYPE = 'multihead' #@param ['uniform','laplace','dot_product','multihead']
+    random_kernel_parameters = True #@param {type:"boolean"}
+    X_SIZE = 1
+    Y_SIZE = 1
+    DEGENERATE = True
+    vocab = pickle.load(open("vocab.pkl", "rb"))
+
+    # if DEGENERATE:
+    #     dataset_train = DegenerateCurves(
+    #         batch_size=16, x_size=X_SIZE, y_size=Y_SIZE, max_num_context=MAX_CONTEXT_POINTS
+    #     )
+    #     dataset_test = DegenerateCurves(
+    #         batch_size=1, x_size=X_SIZE, y_size=Y_SIZE, max_num_context=MAX_CONTEXT_POINTS
+    #     )
+    # else:
+    #     # Train dataset
+    #     dataset_train = GPCurvesReader(
+    #         batch_size=16, x_size=X_SIZE, y_size=Y_SIZE, max_num_context=MAX_CONTEXT_POINTS, random_kernel_parameters=random_kernel_parameters
+    #         )
+
+    #     # Test dataset
+    #     dataset_test = GPCurvesReader(
+    #         batch_size=1, x_size=X_SIZE, y_size=Y_SIZE, max_num_context=MAX_CONTEXT_POINTS, testing=True, random_kernel_parameters=random_kernel_parameters
+    #         )
+    dataset_train = get_loader(
+        "./resized_small_train2014/",
+         "./annotations/captions_train2014.json",
+          transform=None,
+           batch_size=16,
+            shuffle=True,
+             num_workers = 4
+             )
+
+    dataset_test = dataset_train # we will need to build out the test dataset soon
+    # Sizes of the layers of the MLPs for the encoders and decoder
+    # The final output layer of the decoder outputs two values, one for the mean and
+    # one for the variance of the prediction at the target location
+    latent_encoder_output_sizes = [HIDDEN_SIZE]*4
+    num_latents = HIDDEN_SIZE 
+    deterministic_encoder_output_sizes= [HIDDEN_SIZE]*4
+    decoder_output_sizes = [HIDDEN_SIZE]*2 + [2]
+    use_deterministic_path = True
+    xy_size = X_SIZE + Y_SIZE
+
+
+    # ANP with multihead attention
+    if MODEL_TYPE == 'ANP':
+        attention = Attention(rep='mlp', x_size=X_SIZE, r_size=deterministic_encoder_output_sizes[-1], output_sizes=[HIDDEN_SIZE]*2,
+                            att_type=ATTENTION_TYPE).to(device) # CHANGE: rep was originally 'mlp'
+    # NP - equivalent to uniform attention
+    elif MODEL_TYPE == 'NP':
+        attention = Attention(rep='identity', x_size=None, output_sizes=None, att_type='uniform').to(device)
+    else:
+        raise NameError("MODEL_TYPE not among ['ANP,'NP']")
+
+    # Define the model
+    print("num_latents: {}, latent_encoder_output_sizes: {}, deterministic_encoder_output_sizes: {}, decoder_output_sizes: {}".format(
+        num_latents, latent_encoder_output_sizes, deterministic_encoder_output_sizes, decoder_output_sizes))
+    decoder_input_size = 2 * HIDDEN_SIZE + X_SIZE
+    model_std = LatentModel(X_SIZE, Y_SIZE, latent_encoder_output_sizes, num_latents,
+                        decoder_output_sizes, use_deterministic_path,
+                        deterministic_encoder_output_sizes, attention, loss_type="std").to(device)
+    model_wass = LatentModel(X_SIZE, Y_SIZE, latent_encoder_output_sizes, num_latents,
+                        decoder_output_sizes, use_deterministic_path,
+                        deterministic_encoder_output_sizes, attention, loss_type="wass").to(device)
+    models = [model_std, model_wass]
+    model_map = {0:"model_std", 1: "model_wass"}
+
+    optimizers = []
+    for model in models:
+        optimizers.append(torch.optim.Adam(model.parameters(), lr=1e-4))
+    start_time = time.time()
+    progress = tqdm(range(TRAINING_ITERATIONS))
+    for it in progress: 
+        data_train = dataset_train.generate_curves()
+        (context_x, context_y), target_x = data_train.query
+        target_y = data_train.target_y
+        for optimizer, model in zip(optimizers, models):
+            optimizer.zero_grad()
+            pred_y, std_y, log_p, kl, loss_value = model(data_train.query, data_train.num_total_points,
+                                        data_train.target_y)
+            loss_value.backward()
+            optimizer.step()
+            progress.set_description('test loss: {:.3f}'.format(loss_value.item()))
+
+        with torch.no_grad():
+            # Plot the prediction and the context
+            if it % PLOT_AFTER == 0:
+                data_test = dataset_test.generate_curves()
+                (context_x, context_y), target_x = data_test.query
+                target_y = data_test.target_y
+
+                for i, model in enumerate(models):
+                    pred_y, std_y, log_p, kl, loss_value = model(data_test.query, data_test.num_total_points,
+                                            target_y)
+                    elapsed = 100 * (time.time() - start_time) / PLOT_AFTER
+                    start_time = time.time()
+                    plot_functions(target_x, target_y, context_x, context_y, pred_y, std_y, outfile="{}{}{}.png".format(int(it/PLOT_AFTER),model_map[i], it))
+                # plot_grad_flow(model.named_parameters())
+
+    print("done")
 
 if __name__ == "__main__":
-
-    batch_size= 16
-    test_batch_size=1
-
-    m, n = 28, 28
-    num_pixels = m*n
-
-    min_context_points = num_pixels * 0.15 # always have at least 15% of all pixels
-    max_context_points = num_pixels * 0.95 # always have at most 95% of all pixels
-
-
-    kwargs = {'num_workers': 1, 'pin_memory': False} if use_cuda else {}
-    # kwargs = {}
-
-    train_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=True, download=True,
-                    transform=transforms.Compose([
-                        transforms.ToTensor(),
-                    ])),
-        batch_size=batch_size, shuffle=True, **kwargs)
-
-
-    test_loader = torch.utils.data.DataLoader(
-        datasets.MNIST('../data', train=False, transform=transforms.Compose([
-                        transforms.ToTensor(),
-                    ])),
-        batch_size=test_batch_size, shuffle=True, **kwargs)
-
-    epochs = 10
-    log_interval = 50
-    learning_rate = 0.1
-    n_critic = 5
-    
-    encoder = MNISTEncoder().to(device)
-    latent_encoder = MNISTLatentEncoder().to(device)
-    decoder = MNISTLatentDecoder(m, n).to(device)
-    critic = FCCritic().to(device)
-
-    optimizer = optim.Adam(list(encoder.parameters()) + list(decoder.parameters()) + list(latent_encoder.parameters()), lr=0.0001, betas=(0,0.9))
-    optimizer_critic = optim.Adam(critic.parameters(), lr=0.0001, betas=(0,0.9))
-    
-    image_frame = torch.tensor([[i, j] for i in range(0,m) for j in range(0,n)]).float().to(device)
-    
-    for epoch in range(1, epochs+1):
-        encoder.train()
-        decoder.train()
-
-        progress = tqdm(train_loader)
-
-        total_loss = 0
-        count = 0
-        for (batch_ground_truth_image, target) in progress:
-            # ground_truth_image = ground_truth_image.view(28, 28).to(device)
-            
-            for t in range(n_critic):
-                optimizer_critic.zero_grad()
-                loss = 0
-
-                for ground_truth_image in batch_ground_truth_image:
-                    ground_truth_image = ground_truth_image.view(28, 28).to(device)
-
-                    sparse_data = utils.get_mnist_context_points(ground_truth_image, context_points=np.random.randint(min_context_points, max_context_points)).float().to(device)
-
-                    data = utils.get_mnist_features(sparse_data)
-
-                    data = data.to(device).float()
-                    
-                    # run the model to get r which will be concatenated onto every node pair in the decoder
-                    r = encoder(data)
-                    
-                    out = torch.cat((image_frame, r.view(1,-1).repeat(1,m*n).view(m*n,128)), 1)
-
-                    h = decoder(out)
-                    h = h.view(m,n)
-
-                    disc_real = critic(ground_truth_image)
-                    disc_fake = critic(h)
-
-                    gradient_penalty = utils.calc_gradient_penalty(critic, ground_truth_image, h)
-
-                    loss += disc_fake - disc_real + gradient_penalty
-                loss = loss / batch_size
-                
-
-                loss.backward()
-                optimizer_critic.step()
-
-
-            optimizer.zero_grad()
-            gen_loss = 0
-            for ground_truth_image in batch_ground_truth_image:
-                ground_truth_image = ground_truth_image.view(28, 28).to(device)
-
-                sparse_data = utils.get_mnist_context_points(ground_truth_image, context_points=np.random.randint(min_context_points, max_context_points)).float().to(device)
-
-                data = utils.get_mnist_features(sparse_data)
-                r = encoder(data)
-                    
-                out = torch.cat((image_frame, r.view(1,-1).repeat(1,m*n).view(m*n,128)), 1)
-
-                h = decoder(out)
-                h = h.view(m,n)
-
-                disc_fake = critic(h)
-                
-                gen_loss += -disc_fake
-
-                
-            gen_loss = gen_loss / batch_size
-
-            total_loss += gen_loss.item()
-            count += 1
-            gen_loss.backward()
-
-            optimizer.step()
-            progress.set_description('E:{} - Loss: {:.4f}'.format(epoch, total_loss/count))
-
-        with open("encoder_wasnp.pkl", "wb") as of:
-             pickle.dump(encoder, of)
-
-        with open("decoder_wasnp.pkl", "wb") as of:
-             pickle.dump(decoder, of)
-
-        with open("optim.pkl", "wb") as of:
-             pickle.dump(optimizer, of)
-
-        encoder.eval()
-        decoder.eval()
-        with torch.no_grad():
-
-            for i, (ground_truth_image, target) in enumerate(test_loader):
-                ground_truth_image = ground_truth_image.view(28, 28).to(device)
-
-                sparse_data = utils.get_mnist_context_points(ground_truth_image, context_points=400).float().to(device)
-
-                data = utils.get_mnist_features(sparse_data)
-                data = data.to(device).float()
-
-                r = encoder(data)
-
-
-                out = torch.cat((image_frame, r.view(1,-1).repeat(1,m*n).view(m*n,128)), 1)
-                h = decoder(out)
-
-
-                fig, ax = plt.subplots(ncols=2, nrows=2)
-                ax[0][1].imshow(ground_truth_image.reshape(m,n).cpu())
-                ax[0][0].imshow(sparse_data.reshape(m,n).cpu())
-                ax[1][0].imshow(h.detach().reshape(m,n).cpu())
-                plt.savefig("{}res{}.png".format(epoch, i))
-                plt.close()
-                # plt.imsave("{}context_points{}.png".format(epoch, i), sparse_data.reshape(m,n).cpu(), dpi=300)
-
-                # plt.imsave("{}ground_truth{}.png".format(epoch, i), ground_truth_image.reshape(m,n).cpu() ,dpi=300)
-
-                # plt.imsave("{}distr{}.png".format(epoch, i), h.detach().reshape(m,n).cpu(), dpi=300)
-                if i >= 10:
-                    break
+    train_regression()
