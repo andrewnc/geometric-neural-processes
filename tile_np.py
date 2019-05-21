@@ -25,12 +25,12 @@ class Encoder(nn.Module):
     """takes in context points and returns a fixed length aggregation"""
     def __init__(self):
         super(Encoder, self).__init__()
-        self.conv_tile = nn.Conv2d(3,1, kernel_size=1)
-        self.fc_tile = nn.Linear(4*4, 1)
-        self.fc1 = nn.Linear(3, 16)
-        self.fc2 = nn.Linear(16, 32)
-        self.fc3 = nn.Linear(32, 64)
-        self.fc4 = nn.Linear(64, 128)
+        self.conv_tile = nn.Conv2d(3,16, kernel_size=1)
+        self.fc_tile = nn.Linear(256, 256)
+        self.fc1 = nn.Linear(256+16, 128)
+        self.fc2 = nn.Linear(128, 128)
+        # self.fc3 = nn.Linear(128, 128)
+        self.fc4 = nn.Linear(128, 128)
         
 
     def forward(self, x, tile):
@@ -39,10 +39,14 @@ class Encoder(nn.Module):
         """
         tile = tile.transpose(3,2).transpose(2,1)
         tile = self.conv_tile(tile)
-        y = self.fc_tile(tile.view(tile.shape[0], tile.shape[2]*tile.shape[3]))
+        y = self.fc_tile(tile.view(tile.shape[0], tile.shape[1]*tile.shape[2]*tile.shape[3]))
+        x = torch.stack(([coords.flatten() for coords in x]))
         x = torch.cat((x,y), -1)
-        output = self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(x)))))))
-
+        # original_x = x
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        # x = F.relu(self.fc3(x))
+        output = self.fc4(x)
         return output.mean(0).view(1, 128)
 
 class Decoder(nn.Module):
@@ -50,27 +54,25 @@ class Decoder(nn.Module):
         super(Decoder, self).__init__()
         self.m = m
         self.n = n
-        self.fc1 = nn.Linear(130, 86)
-        self.fc2 = nn.Linear(86, 48)
-        # self.r_conv1 = nn.Conv2d(3,3,kernel_size=3, stride=3)
-        # self.r_conv2 = nn.Conv2d(3,3,kernel_size=3, stride=3)
-        # self.r_conv3 = nn.Conv2d(3,3,kernel_size=3, stride=3)
-        # self.conv1 = nn.ConvTranspose2d(65, 32,kernel_size=5, stride=2)
-        # self.conv2 = nn.ConvTranspose2d(32, 16,kernel_size=5, stride=2)
-        # self.conv3 = nn.ConvTranspose2d(16, 8,kernel_size=5, stride=1)
-        # self.conv4 = nn.ConvTranspose2d(8, 1,kernel_size=4, stride=1)
+        self.fc1 = nn.Linear(144, 144)
+        self.fc2 = nn.Linear(144, 144)
+        self.fc3 = nn.Linear(144, 144)
+        self.fc4 = nn.Linear(144, 48)
 
     def forward(self, r, inds):
         """r is the aggregated data used to condition"""
         #x = torch.tensor([[i, j] for i in range(0,self.m) for j in range(0,self.n)]).float().to(device)
         #out = torch.cat((x, r.view(1,-1).repeat(1,self.m*self.n).view(self.m*self.n,128)), 1)
+        inds = torch.stack(([coords.flatten() for coords in inds]))
         x = torch.cat((inds, r.repeat(inds.shape[0], 1)), -1)
-        return torch.sigmoid(self.fc2(F.relu(self.fc1(x)))).view(64,4,4,3)
-        # r = self.r_conv3(F.relu(self.r_conv2(F.relu(self.r_conv1(r)))))
-        # out = torch.cat((r, frame), 0)
-        # out = out.transpose(0,1)
-        # h = self.conv4(F.relu(self.conv3(F.relu(self.conv2(F.relu(self.conv1(out)))))))
-        # return torch.sigmoid(h.squeeze(1))
+        # original_x = x
+        x = F.relu(self.fc1(x))
+        x = F.relu(self.fc2(x))
+        # x = self.fc2(x) + original_x
+        x = F.relu(self.fc3(x))
+        out = torch.sigmoid(self.fc4(x))
+        return out.view(64,4,4,3)
+
 
 # we probably want a better critic
 class Critic(nn.Module):
@@ -150,9 +152,10 @@ if __name__ == "__main__":
     decoder = Decoder(m, n).to(device)
     # critic = Critic().to(device)
 
-    optimizer = optim.Adam(list(encoder.parameters()) + list(decoder.parameters()))
+    optimizer = optim.Adam(list(encoder.parameters()) + list(decoder.parameters()), lr=1e-3)
     criterion = nn.MSELoss()
     # optimizer_critic = optim.RMSprop(critic.parameters(), lr=0.1)
+    loss_values = []
     
     for epoch in range(1, epochs+1):
         encoder.train()
@@ -160,27 +163,34 @@ if __name__ == "__main__":
         # critic.train()
 
         # progress = tqdm(train_loader)
-        progress = tqdm(range(1000))
+        progress = tqdm(range(100))
         for _ in progress: 
             for (ground_truth_images, targets) in train_loader:
-                optimizer.zero_grad()
                 for image, target in zip(ground_truth_images, targets):
+                    optimizer.zero_grad()
                     num_tiles = np.random.randint(4, 64)
                     tiles, inds, _, all_inds, tiled_ground_truth = utils.get_tiles(image, num_tiles=num_tiles)
 
+                    # tiles = tiled_ground_truth[26].repeat(len(tiles),1,1,1)
+                    # weird_ground_truth = tiled_ground_truth[26].repeat(len(tiled_ground_truth),1,1,1)
+                    weird_ground_truth = tiled_ground_truth
                     image = image.to(device)
                     tiles = tiles.float().to(device)
-                    inds = inds.float().to(device)
-                    all_inds = all_inds.float().to(device)
                     tiled_ground_truth = tiled_ground_truth.float().to(device)
+                    weird_ground_truth = weird_ground_truth.float().to(device)
+                    one_hot_identity = torch.eye(8) # avoid magic numbers
+                    inds = inds / 4
+                    all_inds = all_inds / 4
 
-                    r = encoder(inds, tiles)
-                    fake_image = decoder(r, all_inds)
+                    one_hot = one_hot_identity[inds].float().to(device)
+
+                    r = encoder(one_hot, tiles)
+                    fake_image = decoder(r, one_hot_identity[all_inds].float().to(device))
                     # loss = torch.mean(torch.tensor([wasserstein_distance(x, y) for (x,y) in zip(fake_image.view(64,3*4*4).detach().cpu(), tiled_ground_truth.view(64,3*4*4).detach().cpu())], requires_grad=True))
 
-                    loss = criterion(fake_image, tiled_ground_truth)
+                    loss = criterion(fake_image, weird_ground_truth)
                     loss.backward()
-                optimizer.step()
+                    optimizer.step()
                 # plot_grad_flow(encoder.named_parameters())
                 # plot_grad_flow(decoder.named_parameters())
                 break
@@ -233,15 +243,24 @@ if __name__ == "__main__":
             #     # disc_fake.backward()
             #     gen_loss = - disc_fake
             #     gen_loss.backward()
+            progress.set_description("E{} - L{:.4f} - EMin{:.4f} - EMax{:.4f} - DMin{:.4f} - DMax{:.4f}".format(epoch, loss.item(),
+            torch.min(torch.tensor([torch.min(p.grad) for p in encoder.parameters()])), 
+            torch.max(torch.tensor([torch.max(p.grad) for p in encoder.parameters()])), 
+            torch.min(torch.tensor([torch.min(p.grad) for p in decoder.parameters()])), 
+            torch.max(torch.tensor([torch.max(p.grad) for p in decoder.parameters()])) 
+            ))
+            loss_values.append(loss.item())
 
-            progress.set_description("E{} - L{:.4f}".format(epoch, loss.item()))
-
+            if loss.item() <= 0.0001:
+                break
             with open("encoder.pkl", "wb") as of:
                 pickle.dump(encoder, of)
 
             with open("decoder.pkl", "wb") as of:
                 pickle.dump(decoder, of)
 
+            with open("loss.pkl", "wb") as of:
+                pickle.dump(loss_values, of)
         encoder.eval()
         decoder.eval()
         with torch.no_grad():
@@ -251,13 +270,22 @@ if __name__ == "__main__":
 
                 tiles, inds, frame, all_inds, tiled_ground_truth = utils.get_tiles(ground_truth_image, num_tiles=32)
 
-                tiles = tiles.float().to(device)
-                inds = inds.float().to(device)
-                all_inds = all_inds.float().to(device)
-                tiled_ground_truth = tiled_ground_truth.float().to(device)  
 
-                r = encoder(inds, tiles)
-                generated_image = decoder(r, all_inds)
+                # tiles = tiled_ground_truth[26].repeat(len(tiles),1,1,1)
+                # weird_ground_truth = tiled_ground_truth[26].repeat(len(tiled_ground_truth),1,1,1)
+                weird_ground_truth = tiled_ground_truth
+                image = image.to(device)
+                tiles = tiles.float().to(device)
+                tiled_ground_truth = tiled_ground_truth.float().to(device)
+                weird_ground_truth = weird_ground_truth.float().to(device)
+                one_hot_identity = torch.eye(8) # avoid magic numbers
+                _inds = inds /4
+                _all_inds = all_inds /4
+
+                one_hot = one_hot_identity[_inds].float().to(device)
+
+                r = encoder(one_hot, tiles)
+                generated_image = decoder(r, one_hot_identity[_all_inds].float().to(device))
 
                 for j, tile in enumerate(tiled_ground_truth):
                     for ind in inds.detach().cpu():
@@ -293,11 +321,11 @@ if __name__ == "__main__":
                 for row in range(8):
                     for col in range(8):
                         ax[row][col].axis("off")
-                        ax[row][col].imshow(tiled_ground_truth[count].detach().cpu())
+                        ax[row][col].imshow(weird_ground_truth[count].detach().cpu())
                         count += 1
                 plt.axis("off")
                 plt.savefig("{}groundtruth{}.png".format(epoch,i))
                 plt.close()
 
-                if i >= 1:
+                if i >= 10:
                     break
