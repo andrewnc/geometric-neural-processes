@@ -1,4 +1,5 @@
 import matplotlib.pyplot as plt
+from matplotlib.lines import Line2D
 import numpy as np
 
 import pickle
@@ -8,7 +9,7 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
-
+from scipy.stats import wasserstein_distance
 
 from tqdm import tqdm
 
@@ -24,9 +25,9 @@ class Encoder(nn.Module):
     """takes in context points and returns a fixed length aggregation"""
     def __init__(self):
         super(Encoder, self).__init__()
-        self.conv_tile = nn.Conv2d(3,2, kernel_size=1)
+        self.conv_tile = nn.Conv2d(3,1, kernel_size=1)
         self.fc_tile = nn.Linear(4*4, 1)
-        self.fc1 = nn.Linear(4, 16)
+        self.fc1 = nn.Linear(3, 16)
         self.fc2 = nn.Linear(16, 32)
         self.fc3 = nn.Linear(32, 64)
         self.fc4 = nn.Linear(64, 128)
@@ -38,8 +39,7 @@ class Encoder(nn.Module):
         """
         tile = tile.transpose(3,2).transpose(2,1)
         tile = self.conv_tile(tile)
-        y = self.fc_tile(tile.view(tile.shape[0], tile.shape[1], tile.shape[2]*tile.shape[3]))
-        y = y.squeeze(-1)
+        y = self.fc_tile(tile.view(tile.shape[0], tile.shape[2]*tile.shape[3]))
         x = torch.cat((x,y), -1)
         output = self.fc4(F.relu(self.fc3(F.relu(self.fc2(F.relu(self.fc1(x)))))))
 
@@ -65,7 +65,7 @@ class Decoder(nn.Module):
         #x = torch.tensor([[i, j] for i in range(0,self.m) for j in range(0,self.n)]).float().to(device)
         #out = torch.cat((x, r.view(1,-1).repeat(1,self.m*self.n).view(self.m*self.n,128)), 1)
         x = torch.cat((inds, r.repeat(inds.shape[0], 1)), -1)
-        return torch.sigmoid(self.fc2(F.relu(self.fc1(x)))).view(64,3,4,4)
+        return torch.sigmoid(self.fc2(F.relu(self.fc1(x)))).view(64,4,4,3)
         # r = self.r_conv3(F.relu(self.r_conv2(F.relu(self.r_conv1(r)))))
         # out = torch.cat((r, frame), 0)
         # out = out.transpose(0,1)
@@ -88,22 +88,40 @@ class Critic(nn.Module):
         out = self.output(out)
         return out.mean()
 
-
+def plot_grad_flow(named_parameters):
+    '''Plots the gradients flowing through different layers in the net during training.
+    Can be used for checking for possible gradient vanishing / exploding problems.
+    
+    Usage: Plug this function in Trainer class after loss.backwards() as 
+    "plot_grad_flow(self.model.named_parameters())" to visualize the gradient flow'''
+    ave_grads = []
+    max_grads= []
+    layers = []
+    for n, p in named_parameters:
+        if(p.requires_grad) and ("bias" not in n):
+            layers.append(n)
+            ave_grads.append(p.grad.abs().mean())
+            max_grads.append(p.grad.abs().max())
+    plt.bar(np.arange(len(max_grads)), max_grads, alpha=0.1, lw=1, color="c")
+    plt.bar(np.arange(len(max_grads)), ave_grads, alpha=0.1, lw=1, color="b")
+    plt.hlines(0, 0, len(ave_grads)+1, lw=2, color="k" )
+    plt.xticks(range(0,len(ave_grads), 1), layers, rotation="vertical")
+    plt.xlim(left=0, right=len(ave_grads))
+    plt.ylim(bottom = -0.001, top=0.02) # zoom in on the lower gradient regions
+    plt.xlabel("Layers")
+    plt.ylabel("average gradient")
+    plt.title("Gradient flow")
+    plt.grid(True)
+    plt.legend([Line2D([0], [0], color="c", lw=4),
+                Line2D([0], [0], color="b", lw=4),
+                Line2D([0], [0], color="k", lw=4)], ['max-gradient', 'mean-gradient', 'zero-gradient'])
+    plt.show()
 if __name__ == "__main__":
 
     batch_size=64
     test_batch_size=1
 
     c, m, n = 3, 32,32
-    num_pixels = m*n
-
-    min_context_points = num_pixels * 0.15 # always have at least 15% of all pixels
-    max_context_points = num_pixels * 0.95 # always have at most 95% of all pixels
-
-    # normalizer = transforms.Normalize((0.1307,), (0.3081,))
-
-    # train_loader = normalizer(torch.load("../data/processed/training.pt")[0].float())
-    # test_loader = normalizer(torch.load("../data/processed/test.pt")[0].float())
 
 
     kwargs = {'num_workers': 1, 'pin_memory': False} if use_cuda else {}
@@ -113,60 +131,39 @@ if __name__ == "__main__":
         datasets.cifar.CIFAR10('../data', train=True, download=True,
                     transform=transforms.Compose([
                         transforms.ToTensor(),
-                        # transforms.Normalize((0.1307,), (0.3081,)),
+                        transforms.Normalize((0.0,), (1.0,)),
                     ])),
-        batch_size=batch_size, shuffle=True, **kwargs)
+        batch_size=batch_size, shuffle=False, **kwargs)
 
 
     test_loader = torch.utils.data.DataLoader(
         datasets.cifar.CIFAR10('../data', train=False, transform=transforms.Compose([
                         transforms.ToTensor(),
-                        # transforms.Normalize((0.1307,), (0.3081,)),
+                        transforms.Normalize((0.0,), (1.0,)),
                     ])),
-        batch_size=test_batch_size, shuffle=True, **kwargs)
+        batch_size=test_batch_size, shuffle=False, **kwargs)
 
     epochs = 10
     log_interval = 50
 
     encoder = Encoder().to(device)
     decoder = Decoder(m, n).to(device)
-    critic = Critic().to(device)
+    # critic = Critic().to(device)
 
     optimizer = optim.Adam(list(encoder.parameters()) + list(decoder.parameters()))
-    optimizer_critic = optim.Adam(critic.parameters())
+    criterion = nn.MSELoss()
+    # optimizer_critic = optim.RMSprop(critic.parameters(), lr=0.1)
     
     for epoch in range(1, epochs+1):
         encoder.train()
         decoder.train()
+        # critic.train()
 
-        progress = tqdm(train_loader)
-
-        total_loss = 0
-        count = 0
-        for (ground_truth_images, targets) in progress:
-            optimizer.zero_grad()
-            for image, target in zip(ground_truth_images, targets):
-                num_tiles = np.random.randint(4, 64)
-                tiles, inds, _, all_inds, tiled_ground_truth = utils.get_tiles(image, num_tiles=num_tiles)
-
-                image = image.to(device)
-                tiles = tiles.float().to(device)
-                inds = inds.float().to(device)
-                all_inds = all_inds.float().to(device)
-                tiled_ground_truth = tiled_ground_truth.float().to(device)
-
-                # run the model to get r which will be concatenated onto every node pair in the decoder
-                r = encoder(inds, tiles)
-
-                fake_image = decoder(r, all_inds)
-                disc_fake = critic(fake_image)
-                disc_fake.backward()
-                gen_loss = - disc_fake
-            optimizer.step()
-
-            for t in range(5):
-                optimizer_critic.zero_grad()
-                loss = 0
+        # progress = tqdm(train_loader)
+        progress = tqdm(range(1000))
+        for _ in progress: 
+            for (ground_truth_images, targets) in train_loader:
+                optimizer.zero_grad()
                 for image, target in zip(ground_truth_images, targets):
                     num_tiles = np.random.randint(4, 64)
                     tiles, inds, _, all_inds, tiled_ground_truth = utils.get_tiles(image, num_tiles=num_tiles)
@@ -177,33 +174,80 @@ if __name__ == "__main__":
                     all_inds = all_inds.float().to(device)
                     tiled_ground_truth = tiled_ground_truth.float().to(device)
 
-                    # run the model to get r which will be concatenated onto every node pair in the decoder
                     r = encoder(inds, tiles)
-
                     fake_image = decoder(r, all_inds)
+                    # loss = torch.mean(torch.tensor([wasserstein_distance(x, y) for (x,y) in zip(fake_image.view(64,3*4*4).detach().cpu(), tiled_ground_truth.view(64,3*4*4).detach().cpu())], requires_grad=True))
 
-                    disc_real = critic(tiled_ground_truth) # we made need to change this to tiles?
-                    disc_fake = critic(fake_image)
-                    gradient_penalty = utils.calc_gradient_penalty(critic, tiled_ground_truth, fake_image)
-                    loss = disc_fake - disc_real + gradient_penalty
+                    loss = criterion(fake_image, tiled_ground_truth)
                     loss.backward()
-                    w_dist = disc_real - disc_fake
-                optimizer_critic.step()
-            progress.set_description("E{} - L{:.4f}".format(epoch, w_dist.item()))
+                optimizer.step()
+                # plot_grad_flow(encoder.named_parameters())
+                # plot_grad_flow(decoder.named_parameters())
+                break
+
+
+            # for t in range(5):
+                # optimizer_critic.zero_grad()
+                # for image, target in zip(ground_truth_images, targets):
+                #     num_tiles = np.random.randint(4, 64)
+                #     tiles, inds, _, all_inds, tiled_ground_truth = utils.get_tiles(image, num_tiles=num_tiles)
+
+                #     image = image.to(device)
+                #     tiles = tiles.float().to(device)
+                #     inds = inds.float().to(device)
+                #     all_inds = all_inds.float().to(device)
+                #     tiled_ground_truth = tiled_ground_truth.float().to(device)
+
+                #     # run the model to get r which will be concatenated onto every node pair in the decoder
+                #     r = encoder(inds, tiles)
+
+                #     fake_image = decoder(r, all_inds)
+
+            #         disc_real = critic(tiled_ground_truth) # we made need to change this to tiles?
+            #         disc_fake = critic(fake_image)
+            #         # gradient_penalty = utils.calc_gradient_penalty(critic, tiled_ground_truth, fake_image)
+            #         loss = disc_fake - disc_real# + gradient_penalty
+            #         loss.backward()
+            #         # w_dist = disc_real - disc_fake
+            #     optimizer_critic.step()
+            #     for p in critic.parameters():
+            #         p.data.clamp_(-0.01, 0.01)
+
+
+            # optimizer.zero_grad()
+            # for image, target in zip(ground_truth_images, targets):
+            #     num_tiles = np.random.randint(4, 64)
+            #     tiles, inds, _, all_inds, tiled_ground_truth = utils.get_tiles(image, num_tiles=num_tiles)
+
+            #     image = image.to(device)
+            #     tiles = tiles.float().to(device)
+            #     inds = inds.float().to(device)
+            #     all_inds = all_inds.float().to(device)
+            #     tiled_ground_truth = tiled_ground_truth.float().to(device)
+
+            #     # run the model to get r which will be concatenated onto every node pair in the decoder
+            #     r = encoder(inds, tiles)
+
+            #     fake_image = decoder(r, all_inds)
+            #     disc_fake = critic(fake_image)
+            #     # disc_fake.backward()
+            #     gen_loss = - disc_fake
+            #     gen_loss.backward()
+
+            progress.set_description("E{} - L{:.4f}".format(epoch, loss.item()))
 
             with open("encoder.pkl", "wb") as of:
                 pickle.dump(encoder, of)
 
             with open("decoder.pkl", "wb") as of:
                 pickle.dump(decoder, of)
-            break
 
         encoder.eval()
         decoder.eval()
         with torch.no_grad():
 
-            for i, (ground_truth_image, target) in enumerate(test_loader):
-                ground_truth_image = ground_truth_image.view(3, 32, 32)
+            for i, (ground_truth_image, target) in enumerate(train_loader):
+                ground_truth_image = ground_truth_image[0].view(3, 32, 32)
 
                 tiles, inds, frame, all_inds, tiled_ground_truth = utils.get_tiles(ground_truth_image, num_tiles=32)
 
@@ -243,6 +287,7 @@ if __name__ == "__main__":
                 plt.savefig("{}fake{}.png".format(epoch, i))
                 plt.close()
 
+
                 fig, ax = plt.subplots(nrows=8, ncols=8)
                 count = 0
                 for row in range(8):
@@ -254,5 +299,5 @@ if __name__ == "__main__":
                 plt.savefig("{}groundtruth{}.png".format(epoch,i))
                 plt.close()
 
-                if i >= 10:
+                if i >= 1:
                     break
