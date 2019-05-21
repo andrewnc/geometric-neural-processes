@@ -162,69 +162,45 @@ if __name__ == "__main__":
         decoder.train()
         # critic.train()
 
-        # progress = tqdm(train_loader)
-        progress = tqdm(range(100))
-        for _ in progress: 
-            for (ground_truth_images, targets) in train_loader:
-                for image, target in zip(ground_truth_images, targets):
-                    optimizer.zero_grad()
-                    num_tiles = np.random.randint(4, 64)
-                    tiles, inds, _, all_inds, tiled_ground_truth = utils.get_tiles(image, num_tiles=num_tiles)
+        progress = tqdm(train_loader)
+        # progress = tqdm(range(100))
+        # for _ in progress: 
+        for (ground_truth_images, targets) in progress:
+            for image, target in zip(ground_truth_images, targets):
+                optimizer.zero_grad()
+                num_tiles = np.random.randint(4, 64)
+                tiles, inds, _, all_inds, tiled_ground_truth = utils.get_tiles(image, num_tiles=num_tiles)
 
-                    # tiles = tiled_ground_truth[26].repeat(len(tiles),1,1,1)
-                    # weird_ground_truth = tiled_ground_truth[26].repeat(len(tiled_ground_truth),1,1,1)
-                    weird_ground_truth = tiled_ground_truth
-                    image = image.to(device)
-                    tiles = tiles.float().to(device)
-                    tiled_ground_truth = tiled_ground_truth.float().to(device)
-                    weird_ground_truth = weird_ground_truth.float().to(device)
-                    one_hot_identity = torch.eye(8) # avoid magic numbers
-                    inds = inds / 4
-                    all_inds = all_inds / 4
+                # tiles = tiled_ground_truth[26].repeat(len(tiles),1,1,1)
+                # weird_ground_truth = tiled_ground_truth[26].repeat(len(tiled_ground_truth),1,1,1)
+                weird_ground_truth = tiled_ground_truth
+                image = image.to(device)
+                tiles = tiles.float().to(device)
+                tiled_ground_truth = tiled_ground_truth.float().to(device)
+                weird_ground_truth = weird_ground_truth.float().to(device)
+                one_hot_identity = torch.eye(8) # avoid magic numbers
+                inds = inds / 4
+                all_inds = all_inds / 4
 
-                    one_hot = one_hot_identity[inds].float().to(device)
+                one_hot = one_hot_identity[inds].float().to(device)
 
-                    r = encoder(one_hot, tiles)
-                    fake_image = decoder(r, one_hot_identity[all_inds].float().to(device))
-                    # loss = torch.mean(torch.tensor([wasserstein_distance(x, y) for (x,y) in zip(fake_image.view(64,3*4*4).detach().cpu(), tiled_ground_truth.view(64,3*4*4).detach().cpu())], requires_grad=True))
-
-                    loss = criterion(fake_image, weird_ground_truth)
-                    loss.backward()
-                    optimizer.step()
-                # plot_grad_flow(encoder.named_parameters())
-                # plot_grad_flow(decoder.named_parameters())
-                break
+                r = encoder(one_hot, tiles)
+                fake_image = decoder(r, one_hot_identity[all_inds].float().to(device))
+                # loss = torch.mean(torch.tensor([wasserstein_distance(x, y) for (x,y) in zip(fake_image.view(64,3*4*4).detach().cpu(), tiled_ground_truth.view(64,3*4*4).detach().cpu())], requires_grad=True))
 
 
-            # for t in range(5):
-                # optimizer_critic.zero_grad()
-                # for image, target in zip(ground_truth_images, targets):
-                #     num_tiles = np.random.randint(4, 64)
-                #     tiles, inds, _, all_inds, tiled_ground_truth = utils.get_tiles(image, num_tiles=num_tiles)
-
-                #     image = image.to(device)
-                #     tiles = tiles.float().to(device)
-                #     inds = inds.float().to(device)
-                #     all_inds = all_inds.float().to(device)
-                #     tiled_ground_truth = tiled_ground_truth.float().to(device)
-
-                #     # run the model to get r which will be concatenated onto every node pair in the decoder
-                #     r = encoder(inds, tiles)
-
-                #     fake_image = decoder(r, all_inds)
-
-            #         disc_real = critic(tiled_ground_truth) # we made need to change this to tiles?
-            #         disc_fake = critic(fake_image)
-            #         # gradient_penalty = utils.calc_gradient_penalty(critic, tiled_ground_truth, fake_image)
-            #         loss = disc_fake - disc_real# + gradient_penalty
-            #         loss.backward()
-            #         # w_dist = disc_real - disc_fake
-            #     optimizer_critic.step()
-            #     for p in critic.parameters():
-            #         p.data.clamp_(-0.01, 0.01)
+                # loss = criterion(fake_image, weird_ground_truth)
+                fake_image = fake_image.view(64, 4*4,3).sum(1)
+                weird_ground_truth = weird_ground_truth.view(64, 4*4,3).sum(1)
+                loss = torch.sum([wasserstein_distance(fake_image[:,i], weird_ground_truth[:,i]) for i in range(3)])
+                loss.backward()
+                optimizer.step()
+            # plot_grad_flow(encoder.named_parameters())
+            # plot_grad_flow(decoder.named_parameters())
 
 
-            # optimizer.zero_grad()
+        # for t in range(5):
+            # optimizer_critic.zero_grad()
             # for image, target in zip(ground_truth_images, targets):
             #     num_tiles = np.random.randint(4, 64)
             #     tiles, inds, _, all_inds, tiled_ground_truth = utils.get_tiles(image, num_tiles=num_tiles)
@@ -239,10 +215,37 @@ if __name__ == "__main__":
             #     r = encoder(inds, tiles)
 
             #     fake_image = decoder(r, all_inds)
-            #     disc_fake = critic(fake_image)
-            #     # disc_fake.backward()
-            #     gen_loss = - disc_fake
-            #     gen_loss.backward()
+
+        #         disc_real = critic(tiled_ground_truth) # we made need to change this to tiles?
+        #         disc_fake = critic(fake_image)
+        #         # gradient_penalty = utils.calc_gradient_penalty(critic, tiled_ground_truth, fake_image)
+        #         loss = disc_fake - disc_real# + gradient_penalty
+        #         loss.backward()
+        #         # w_dist = disc_real - disc_fake
+        #     optimizer_critic.step()
+        #     for p in critic.parameters():
+        #         p.data.clamp_(-0.01, 0.01)
+
+
+        # optimizer.zero_grad()
+        # for image, target in zip(ground_truth_images, targets):
+        #     num_tiles = np.random.randint(4, 64)
+        #     tiles, inds, _, all_inds, tiled_ground_truth = utils.get_tiles(image, num_tiles=num_tiles)
+
+        #     image = image.to(device)
+        #     tiles = tiles.float().to(device)
+        #     inds = inds.float().to(device)
+        #     all_inds = all_inds.float().to(device)
+        #     tiled_ground_truth = tiled_ground_truth.float().to(device)
+
+        #     # run the model to get r which will be concatenated onto every node pair in the decoder
+        #     r = encoder(inds, tiles)
+
+        #     fake_image = decoder(r, all_inds)
+        #     disc_fake = critic(fake_image)
+        #     # disc_fake.backward()
+        #     gen_loss = - disc_fake
+        #     gen_loss.backward()
             progress.set_description("E{} - L{:.4f} - EMin{:.4f} - EMax{:.4f} - DMin{:.4f} - DMax{:.4f}".format(epoch, loss.item(),
             torch.min(torch.tensor([torch.min(p.grad) for p in encoder.parameters()])), 
             torch.max(torch.tensor([torch.max(p.grad) for p in encoder.parameters()])), 
@@ -253,14 +256,14 @@ if __name__ == "__main__":
 
             if loss.item() <= 0.0001:
                 break
-            with open("encoder.pkl", "wb") as of:
-                pickle.dump(encoder, of)
+        with open("encoder.pkl", "wb") as of:
+            pickle.dump(encoder, of)
 
-            with open("decoder.pkl", "wb") as of:
-                pickle.dump(decoder, of)
+        with open("decoder.pkl", "wb") as of:
+            pickle.dump(decoder, of)
 
-            with open("loss.pkl", "wb") as of:
-                pickle.dump(loss_values, of)
+        with open("loss.pkl", "wb") as of:
+            pickle.dump(loss_values, of)
         encoder.eval()
         decoder.eval()
         with torch.no_grad():
