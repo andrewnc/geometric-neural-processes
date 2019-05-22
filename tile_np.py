@@ -9,9 +9,11 @@ import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
 from torchvision import datasets, transforms
-from scipy.stats import wasserstein_distance
-
+# from scipy.stats import wasserstein_distance
+# from geomloss import SamplesLoss
+from utils import sliced_wasserstein_distance
 from tqdm import tqdm
+
 
 import os
 
@@ -135,7 +137,7 @@ if __name__ == "__main__":
                         transforms.ToTensor(),
                         transforms.Normalize((0.0,), (1.0,)),
                     ])),
-        batch_size=batch_size, shuffle=False, **kwargs)
+        batch_size=batch_size, shuffle=True, **kwargs)
 
 
     test_loader = torch.utils.data.DataLoader(
@@ -143,7 +145,7 @@ if __name__ == "__main__":
                         transforms.ToTensor(),
                         transforms.Normalize((0.0,), (1.0,)),
                     ])),
-        batch_size=test_batch_size, shuffle=False, **kwargs)
+        batch_size=test_batch_size, shuffle=True, **kwargs)
 
     epochs = 10
     log_interval = 50
@@ -153,7 +155,8 @@ if __name__ == "__main__":
     # critic = Critic().to(device)
 
     optimizer = optim.Adam(list(encoder.parameters()) + list(decoder.parameters()), lr=1e-3)
-    criterion = nn.MSELoss()
+    # criterion = nn.MSELoss()
+    # criterion = SamplesLoss("sinkhorn", p=2, blur=1.)
     # optimizer_critic = optim.RMSprop(critic.parameters(), lr=0.1)
     loss_values = []
     
@@ -190,9 +193,12 @@ if __name__ == "__main__":
 
 
                 # loss = criterion(fake_image, weird_ground_truth)
-                fake_image = fake_image.view(64, 4*4,3).sum(1)
-                weird_ground_truth = weird_ground_truth.view(64, 4*4,3).sum(1)
-                loss = torch.sum([wasserstein_distance(fake_image[:,i], weird_ground_truth[:,i]) for i in range(3)])
+                fake_image = fake_image.view(64,4*4*3)
+                weird_ground_truth = weird_ground_truth.view(64,4*4*3)
+                loss = 0.0
+                for tile in range(64):
+                    loss += sliced_wasserstein_distance(fake_image[tile].unsqueeze(0), weird_ground_truth[tile].unsqueeze(0),num_projections=5, device=device)
+                            
                 loss.backward()
                 optimizer.step()
             # plot_grad_flow(encoder.named_parameters())
@@ -246,6 +252,7 @@ if __name__ == "__main__":
         #     # disc_fake.backward()
         #     gen_loss = - disc_fake
         #     gen_loss.backward()
+            # progress.set_description("E{} - L{:.4f}".format(epoch, loss.item()))
             progress.set_description("E{} - L{:.4f} - EMin{:.4f} - EMax{:.4f} - DMin{:.4f} - DMax{:.4f}".format(epoch, loss.item(),
             torch.min(torch.tensor([torch.min(p.grad) for p in encoder.parameters()])), 
             torch.max(torch.tensor([torch.max(p.grad) for p in encoder.parameters()])), 

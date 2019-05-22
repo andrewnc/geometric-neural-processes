@@ -11,6 +11,7 @@ import scipy
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
+from sklearn.feature_extraction.image import extract_patches_2d
 
 import supervised
 
@@ -185,6 +186,25 @@ def get_mnist_context_points(data, context_points=100):
     data = torch.tensor(data)
     
     return data
+
+def get_tiles(image, num_tiles=8, tile_w=4, tile_h=4):
+    """data in is a single image (non batched for now), probably a tensor"""
+    c, w, h = image.shape
+    image = image.transpose(0,1).transpose(1,2)
+    full_inds = torch.tensor([[x,y] for x in range(0,w,tile_w) for y in range(0, h, tile_h)]) # top left corner x value of each tile
+
+    inds = full_inds[torch.randperm(len(full_inds))[:num_tiles]]
+    tiles = torch.zeros((num_tiles,tile_w, tile_h,c))
+    frame = torch.zeros((64,4,4,3))
+    for i, ind in enumerate(inds):
+        tiles[i] = image[ind[0]:ind[0]+tile_w,ind[1]:ind[1]+tile_h,:]
+    
+    for i, ind in enumerate(full_inds):
+        frame[i] = image[ind[0]:ind[0]+tile_w,ind[1]:ind[1]+tile_h,:]
+
+    return tiles, inds, torch.zeros((len(full_inds), tile_w, tile_h, c)), full_inds, frame
+
+
 
 def batch_context(image, context_points=100):
     """image should be [batch,c, m, n] - it should probably be a torch tensor"""
@@ -401,11 +421,10 @@ def run_baselines(train, test, outfile_name="full_baseline"):
 
 def calc_gradient_penalty(netD, real_data, fake_data, device="cuda"):
     alpha = torch.rand(1, 1)
-    alpha = alpha.expand(1, int(real_data.nelement()/1)).contiguous()
-    alpha = alpha.view(28, 28)
+    real_data = real_data.transpose(-1,-2).transpose(-2,-3)
+    alpha = alpha.expand(1, int(real_data.nelement()/1)).contiguous().view(real_data.shape)
     alpha = alpha.to(device)
     
-    fake_data = fake_data.view(28,28)
     interpolates = alpha * real_data.detach() + ((1 - alpha) * fake_data.detach())
 
     interpolates = interpolates.to(device)
@@ -420,6 +439,57 @@ def calc_gradient_penalty(netD, real_data, fake_data, device="cuda"):
     gradients = gradients.view(gradients.size(0), -1)                              
     gradient_penalty = ((gradients.norm(2, dim=1) - 1) ** 2).mean() * 10
     return gradient_penalty
+
+def rand_projections(embedding_dim, num_samples=50):
+    """This function generates `num_samples` random samples from the latent space's unit sphere.
+        Args:
+            embedding_dim (int): embedding dimensionality
+            num_samples (int): number of random projection samples
+        Return:
+            torch.Tensor: tensor of size (num_samples, embedding_dim)
+    """
+    projections = [w / np.sqrt((w**2).sum())  # L2 normalization
+                   for w in np.random.normal(size=(num_samples, embedding_dim))]
+    projections = np.asarray(projections)
+    return torch.from_numpy(projections).type(torch.FloatTensor)
+
+
+def sliced_wasserstein_distance(encoded_samples,
+                                 distribution_samples,
+                                 num_projections=50,
+                                 p=2,
+                                 device='cpu'):
+    """ Sliced Wasserstein Distance between encoded samples and drawn distribution samples.
+        Args:
+            encoded_samples (toch.Tensor): tensor of encoded training samples
+            distribution_samples (torch.Tensor): tensor of drawn distribution training samples
+            num_projections (int): number of projections to approximate sliced wasserstein distance
+            p (int): power of distance metric
+            device (torch.device): torch device (default 'cpu')
+        Return:
+            torch.Tensor: tensor of wasserstrain distances of size (num_projections, 1)
+    """
+    # derive latent space dimension size from random samples drawn from latent prior distribution
+    embedding_dim = distribution_samples.size(1)
+    # generate random projections in latent space
+    projections = rand_projections(embedding_dim, num_projections).to(device)
+    # calculate projections through the encoded samples
+    encoded_projections = encoded_samples.matmul(projections.transpose(0, 1))
+    # calculate projections through the prior distribution random samples
+    distribution_projections = (distribution_samples.matmul(projections.transpose(0, 1)))
+    # calculate the sliced wasserstein distance by
+    # sorting the samples per random projection and
+    # calculating the difference between the
+    # encoded samples and drawn random samples
+    # per random projection
+    wasserstein_distance = (torch.sort(encoded_projections.transpose(0, 1), dim=1)[0] -
+                            torch.sort(distribution_projections.transpose(0, 1), dim=1)[0])
+    # distance between latent space prior and encoded distributions
+    # power of 2 by default for Wasserstein-2
+    wasserstein_distance = torch.pow(wasserstein_distance, p)
+    # approximate mean wasserstein_distance for each projection
+    return wasserstein_distance.mean()
+
 
 if __name__ == "__main__":
     d = load_dataset_from_pickle()
