@@ -183,30 +183,34 @@ if __name__ == "__main__":
                 metrics = {"precision": [],"recall": [],"f1-score":[], "accuracy": []}
                 for i, graph in enumerate(test):
 
-                    
-                    sparse_graph = utils.sparsely_observe_graph(graph, .75, .9)
-                    data = utils.graph_to_tensor_feature_extractor(sparse_graph)
+                    try:
+                        sparse_graph = utils.sparsely_observe_graph(graph, .75, .9)
+                        data = utils.graph_to_tensor_feature_extractor(sparse_graph)
 
-                    target, graph_edge = utils.graph_to_tensor_feature_extractor(graph, target=True)
+                        target, graph_edge = utils.graph_to_tensor_feature_extractor(graph, target=True)
 
-                    data = data.to(device)
-                    target = target.to(device)
+                        data = data.to(device)
+                        target = target.to(device)
 
-                    r = encoder(data)
+                        r = encoder(data)
 
-                    edges = decoder(r, target)
+                        edges = decoder(r, target)
 
-                    # approximate_graph = utils.reconstruct_graph(edges, graph)
-                    classification_report, accuracy = utils.get_accuracy(edges, graph_edge, as_dict = True, acc=True)
+                        # approximate_graph = utils.reconstruct_graph(edges, graph)
+                        classification_report, accuracy = utils.get_accuracy(edges, graph_edge, as_dict = True, acc=True)
 
-                    metrics['precision'].append(classification_report['weighted avg']['precision']) 
-                    metrics['recall'].append(classification_report['weighted avg']['recall']) 
-                    metrics['f1-score'].append(classification_report['weighted avg']['f1-score'])
-                    metrics['accuracy'].append(accuracy)
+                        metrics['precision'].append(classification_report['weighted avg']['precision']) 
+                        metrics['recall'].append(classification_report['weighted avg']['recall']) 
+                        metrics['f1-score'].append(classification_report['weighted avg']['f1-score'])
+                        metrics['accuracy'].append(accuracy)
 
 
-                    # utils.draw_graph(graph, title="{}target{}.png".format(data_amount, i), save=True)
-                    # utils.draw_graph(approximate_graph, title="{}reconstruction{}.png".format(data_amount, i), save=True)
+                        # utils.draw_graph(graph, title="{}target{}.png".format(data_amount, i), save=True)
+                        # utils.draw_graph(approximate_graph, title="{}reconstruction{}.png".format(data_amount, i), save=True)
+
+                    except Exception as e:
+                        print(e)
+                        continue
                 print("precision {}".format(np.mean(metrics["precision"])))
                 print("recall {}".format(np.mean(metrics["recall"])))
                 print("f1-score {}".format(np.mean(metrics["f1-score"])))
