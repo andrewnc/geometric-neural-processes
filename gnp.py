@@ -185,9 +185,9 @@ if __name__ == "__main__":
 
                     try:
                         sparse_graph = utils.sparsely_observe_graph(graph, .75, .9)
-                        data = utils.graph_to_tensor_feature_extractor(sparse_graph)
+                        data = utils.graph_to_tensor_feature_extractor(sparse_graph, m=graph_m)
 
-                        target, graph_edge = utils.graph_to_tensor_feature_extractor(graph, target=True)
+                        target, graph_edge = utils.graph_to_tensor_feature_extractor(graph, m=graph_m, target=True)
 
                         data = data.to(device)
                         target = target.to(device)
