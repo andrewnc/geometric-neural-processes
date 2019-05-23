@@ -181,6 +181,7 @@ if __name__ == "__main__":
             with torch.no_grad():
 
                 metrics = {"precision": [],"recall": [],"f1-score":[], "accuracy": []}
+                accuracy = []
                 for i, graph in enumerate(test):
 
                     try:
