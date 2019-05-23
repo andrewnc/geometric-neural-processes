@@ -130,7 +130,7 @@ if __name__ == "__main__":
                 for i, graph in progress:
                     full_loss =0 
 
-                    for j in range(5):
+                    for j in range(10):
                         try:
                             sparse_graph = utils.sparsely_observe_graph(graph, min_context_percent, max_context_percent)
 
