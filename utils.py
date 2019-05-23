@@ -6,8 +6,10 @@ import torch
 from torch import autograd
 from torch.optim import Optimizer
 import math
-
+from torch.utils.data import Dataset
 import scipy
+import pandas as pd
+import os
 
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, accuracy_score
@@ -490,6 +492,28 @@ def sliced_wasserstein_distance(encoded_samples,
     # approximate mean wasserstein_distance for each projection
     return wasserstein_distance.mean()
 
+class CelebaDataset(Dataset):
+    """Custom Dataset for loading CelebA face images"""
+
+    def __init__(self, txt_path, img_dir, transform=None):
+    
+        df = pd.read_csv(txt_path, sep=",", index_col=0)
+        self.img_dir = img_dir
+        self.txt_path = txt_path
+        self.img_names = df.index.values
+        self.transform = transform
+
+    def __getitem__(self, index):
+        img = plt.imread(os.path.join(self.img_dir,
+                                      self.img_names[index]))
+        
+        if self.transform is not None:
+            img = self.transform(img)
+        
+        return img
+
+    def __len__(self):
+        return len(self.img_names)
 
 if __name__ == "__main__":
     d = load_dataset_from_pickle()

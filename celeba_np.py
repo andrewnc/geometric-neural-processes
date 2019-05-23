@@ -8,10 +8,11 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import torch.optim as optim
+from torch.utils.data import DataLoader
 from torchvision import datasets, transforms
 # from scipy.stats import wasserstein_distance
 # from geomloss import SamplesLoss
-from utils import sliced_wasserstein_distance
+from utils import sliced_wasserstein_distance, CelebaDataset
 from tqdm import tqdm
 
 
@@ -131,22 +132,34 @@ if __name__ == "__main__":
 
     kwargs = {'num_workers': 1, 'pin_memory': False} if use_cuda else {}
     # kwargs = {}
-
-    train_loader = torch.utils.data.DataLoader(
-        datasets.cifar.CIFAR10('../data', train=True, download=True,
-                    transform=transforms.Compose([
+    train_dataset = CelebaDataset(txt_path='../data/list_attr_celeba.csv',
+                              img_dir='../data/resized_small_img_align_celeb_a/',
+                              transform=transforms.Compose([
                         transforms.ToTensor(),
                         transforms.Normalize((0.0,), (1.0,)),
-                    ])),
-        batch_size=batch_size, shuffle=True, **kwargs)
+                    ]))
+
+    train_loader = DataLoader(dataset=train_dataset,
+                          batch_size=128,
+                          shuffle=True,
+                          **kwargs)
+    # train_loader = torch.utils.data.dataloader(
+    #     datasets.cifar.cifar10('../data', train=True, download=True,
+    #                 transform=transforms.Compose([
+    #                     transforms.ToTensor(),
+    #                     transforms.Normalize((0.0,), (1.0,)),
+    #                 ])),
+    #     batch_size=batch_size, shuffle=True, **kwargs)
 
 
-    test_loader = torch.utils.data.DataLoader(
-        datasets.cifar.CIFAR10('../data', train=False, transform=transforms.Compose([
-                        transforms.ToTensor(),
-                        transforms.Normalize((0.0,), (1.0,)),
-                    ])),
-        batch_size=test_batch_size, shuffle=True, **kwargs)
+    # test_loader = torch.utils.data.DataLoader(
+    #     datasets.cifar.CIFAR10('../data', train=False, transform=transforms.Compose([
+    #                     transforms.ToTensor(),
+    #                     transforms.Normalize((0.0,), (1.0,)),
+    #                 ])),
+    #     batch_size=test_batch_size, shuffle=True, **kwargs)
+
+    test_loader = train_loader
 
     epochs = 10
     log_interval = 50
@@ -169,11 +182,12 @@ if __name__ == "__main__":
         progress = tqdm(train_loader)
         # progress = tqdm(range(100))
         # for _ in progress: 
-        for (ground_truth_images, targets) in progress:
-            for image, target in zip(ground_truth_images, targets):
-                if target != single_class:
-                    continue
-                optimizer.zero_grad()
+        for (ground_truth_images) in progress:
+            # for image, target in zip(ground_truth_images, targets):
+            optimizer.zero_grad()
+            for image in ground_truth_images:
+                # if target != single_class:
+                #     continue
                 num_tiles = np.random.randint(4, 64)
                 tiles, inds, _, all_inds, tiled_ground_truth = utils.get_tiles(image, num_tiles=num_tiles)
 
@@ -203,58 +217,11 @@ if __name__ == "__main__":
                     loss += sliced_wasserstein_distance(fake_image[tile].unsqueeze(0), weird_ground_truth[tile].unsqueeze(0),num_projections=5, device=device)
                             
                 loss.backward()
-                optimizer.step()
+            optimizer.step()
             # plot_grad_flow(encoder.named_parameters())
             # plot_grad_flow(decoder.named_parameters())
 
 
-        # for t in range(5):
-            # optimizer_critic.zero_grad()
-            # for image, target in zip(ground_truth_images, targets):
-            #     num_tiles = np.random.randint(4, 64)
-            #     tiles, inds, _, all_inds, tiled_ground_truth = utils.get_tiles(image, num_tiles=num_tiles)
-
-            #     image = image.to(device)
-            #     tiles = tiles.float().to(device)
-            #     inds = inds.float().to(device)
-            #     all_inds = all_inds.float().to(device)
-            #     tiled_ground_truth = tiled_ground_truth.float().to(device)
-
-            #     # run the model to get r which will be concatenated onto every node pair in the decoder
-            #     r = encoder(inds, tiles)
-
-            #     fake_image = decoder(r, all_inds)
-
-        #         disc_real = critic(tiled_ground_truth) # we made need to change this to tiles?
-        #         disc_fake = critic(fake_image)
-        #         # gradient_penalty = utils.calc_gradient_penalty(critic, tiled_ground_truth, fake_image)
-        #         loss = disc_fake - disc_real# + gradient_penalty
-        #         loss.backward()
-        #         # w_dist = disc_real - disc_fake
-        #     optimizer_critic.step()
-        #     for p in critic.parameters():
-        #         p.data.clamp_(-0.01, 0.01)
-
-
-        # optimizer.zero_grad()
-        # for image, target in zip(ground_truth_images, targets):
-        #     num_tiles = np.random.randint(4, 64)
-        #     tiles, inds, _, all_inds, tiled_ground_truth = utils.get_tiles(image, num_tiles=num_tiles)
-
-        #     image = image.to(device)
-        #     tiles = tiles.float().to(device)
-        #     inds = inds.float().to(device)
-        #     all_inds = all_inds.float().to(device)
-        #     tiled_ground_truth = tiled_ground_truth.float().to(device)
-
-        #     # run the model to get r which will be concatenated onto every node pair in the decoder
-        #     r = encoder(inds, tiles)
-
-        #     fake_image = decoder(r, all_inds)
-        #     disc_fake = critic(fake_image)
-        #     # disc_fake.backward()
-        #     gen_loss = - disc_fake
-        #     gen_loss.backward()
             # progress.set_description("E{} - L{:.4f}".format(epoch, loss.item()))
             progress.set_description("E{} - L{:.4f} - EMin{:.4f} - EMax{:.4f} - DMin{:.4f} - DMax{:.4f}".format(epoch, loss.item(),
             torch.min(torch.tensor([torch.min(p.grad) for p in encoder.parameters()])), 
@@ -278,11 +245,11 @@ if __name__ == "__main__":
         decoder.eval()
         with torch.no_grad():
 
-            for i, (ground_truth_image, target) in enumerate(train_loader):
+            for i, (ground_truth_image) in enumerate(train_loader):
                 ground_truth_image = ground_truth_image[0].view(3, 32, 32)
 
-                if target[0] != single_class:
-                    continue
+                # if target[0] != single_class:
+                #     continue
 
                 tiles, inds, frame, all_inds, tiled_ground_truth = utils.get_tiles(ground_truth_image, num_tiles=32)
 
@@ -343,5 +310,5 @@ if __name__ == "__main__":
                 plt.savefig("{}groundtruth{}.png".format(epoch,i))
                 plt.close()
 
-                if i >= 20:
+                if i >= 10:
                     break
