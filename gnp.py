@@ -100,7 +100,7 @@ if __name__ == "__main__":
     min_context_percent = 0.4
     max_context_percent = 0.9
 
-    epochs = 10
+    epochs = 3
 
     log_interval = 50
 
@@ -108,7 +108,7 @@ if __name__ == "__main__":
     
     for repeat_for_error_bars in range(10):
         all_metrics = []
-        for graph_m in range(1, 132):
+        for graph_m in range(1, 132, 2):
             encoder = NonGraphEncoder(graph_m).to(device)
             decoder = Decoder(graph_m).to(device)
 
@@ -130,7 +130,7 @@ if __name__ == "__main__":
                 for i, graph in progress:
                     full_loss =0 
 
-                    for j in range(50):
+                    for j in range(5):
 
                         sparse_graph = utils.sparsely_observe_graph(graph, min_context_percent, max_context_percent)
 
@@ -155,16 +155,16 @@ if __name__ == "__main__":
 
                         total_loss += loss_val.item()
                         count += 1
-                        acc, out_acc = utils.get_accuracy(edges, graph_edge, as_dict=True, acc=True)
-                        total_p += acc['weighted avg']['precision'] 
-                        total_r += acc['weighted avg']['recall']
-                        total_f1 += acc['weighted avg']['f1-score']
-                        total_acc += out_acc
+                        # acc, out_acc = utils.get_accuracy(edges, graph_edge, as_dict=True, acc=True)
+                        # total_p += acc['weighted avg']['precision'] 
+                        # total_r += acc['weighted avg']['recall']
+                        # total_f1 += acc['weighted avg']['f1-score']
+                        # total_acc += out_acc
                         loss_val.backward()
                         optimizer.step()
                     
                     with open("encoder_graph.pkl", "wb") as of:
-                        progress.set_description('E:{} - Loss: {:.4f} P: {:.4f} R: {:.4f} F1: {:.4f} A: {:.4f}'.format(epoch, total_loss/count, total_p/count, total_r/count, total_f1/count, total_acc/count))
+                        # progress.set_description('E:{} - Loss: {:.4f} P: {:.4f} R: {:.4f} F1: {:.4f} A: {:.4f}'.format(epoch, total_loss/count, total_p/count, total_r/count, total_f1/count, total_acc/count))
                         pickle.dump(encoder, of)
 
                     with open("encoder_graph.pkl", "wb") as of:

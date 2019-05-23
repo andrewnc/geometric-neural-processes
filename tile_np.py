@@ -129,7 +129,7 @@ if __name__ == "__main__":
     single_class = 0
 
 
-    kwargs = {'num_workers': 1, 'pin_memory': False} if use_cuda else {}
+    kwargs = {'num_workers': 10, 'pin_memory': True} if use_cuda else {}
     # kwargs = {}
 
     train_loader = torch.utils.data.DataLoader(
