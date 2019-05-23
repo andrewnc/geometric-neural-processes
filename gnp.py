@@ -106,8 +106,8 @@ if __name__ == "__main__":
 
     # subsampled_train = train[:data_amount] # subsample to compare
     
+    all_metrics = []
     for repeat_for_error_bars in range(10):
-        all_metrics = []
         for graph_m in range(1, 50, 2):
             encoder = NonGraphEncoder(graph_m).to(device)
             decoder = Decoder(graph_m).to(device)
