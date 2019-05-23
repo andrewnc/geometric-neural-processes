@@ -396,8 +396,8 @@ def distance_metric(G1, G2):
 def get_accuracy(y_hat, y, as_dict=False, acc=False):
     # y_hat_edges = {k:np.argmax(softmax(np.array(v.detach()))) for k,v in nx.get_edge_attributes(y_hat, 'edge_value').items()}
     # y_edges = nx.get_edge_attributes(y, 'edge_value')
-    predicted = np.argmax(softmax(np.array(y_hat.detach())), axis=1)
-    target = np.array(y.detach())
+    predicted = np.argmax(softmax(np.array(y_hat.detach().cpu())), axis=1)
+    target = np.array(y.detach().cpu())
 
     if acc:
         return classification_report(target, predicted, output_dict=as_dict), accuracy_score(target, predicted)
