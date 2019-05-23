@@ -305,7 +305,7 @@ def graph_to_tensor_feature_extractor(G,m=10, target=False):
         ind1, ind2 = g_nodes.index(node1), g_nodes.index(node2)
         node1_val, node2_val = G.nodes[node1]['node_value'], G.nodes[node2]['node_value']
         node1_degree, node2_degree = G.degree[node1], G.degree[node2]
-        eigs1, eigs2 = vec[ind1][-m:], vec[ind2][-m:] # I was messing around with this, it currently takes the smallest, the previous experiments were run with [m:].
+        eigs1, eigs2 = vec[ind1][:m], vec[ind2][:m]
         features = [node1_val, node2_val, node1_degree, node2_degree]
         features.extend(eigs1)
         features.extend(eigs2)
