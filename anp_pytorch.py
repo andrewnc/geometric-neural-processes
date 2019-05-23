@@ -362,7 +362,7 @@ class Decoder(nn.Module):
         sigma_diag = torch.diag_embed(sigma.squeeze(-1)) # [batch, n_observations, n_observations]
         sigma_diag = torch.diag_embed(sigma) # [batch, n_observations, d_y, d_y]
         dist = torch.distributions.MultivariateNormal(
-            loc=mu, scale_tril=sigma_diag)
+            loc=mu, scale_tril=sigma_diag) # I need a smart way to model a uniform distribution
 
         return dist, mu, sigma
 
@@ -469,33 +469,9 @@ class LatentModel(nn.Module):
         # If we want to calculate the log_prob for training we will make use of the
         # target_y. At test time the target_y is not available so we return None.
 
-        if self.loss_type == "wass":
-            if target_y is not None:
-                log_p = dist.log_prob(target_y)
-                    # log_p[log_p != log_p] = 0
+        posterior = self._latent_encoder(target_x, target_y)
 
-                posterior = self._latent_encoder(target_x, target_y)
-                wass_dist = torch.norm(posterior.loc - prior.loc)**2 + torch.trace(posterior.scale) + torch.trace(prior.scale) - 2*torch.trace(torch.sqrt(torch.sqrt(posterior.scale)*prior.scale*torch.sqrt(posterior.scale)))
-                wass_dist = tile(wass_dist, [1, num_targets])
-                loss = - torch.mean(log_p - wass_dist / num_targets)
-                kl = wass_dist # this is merely for the return value, and because I'm lazy
-            else:
-                log_p = None
-                kl = None
-                loss = None
-        elif self.loss_type == "std":
-            if target_y is not None:
-                log_p = dist.log_prob(target_y)
-                posterior = self._latent_encoder(target_x, target_y)
-                kl = torch.distributions.kl.kl_divergence(posterior, prior).sum(dim=-1, keepdim=True)
-                kl = tile(kl, [1, num_targets])
-                loss = - torch.mean(log_p - kl / num_targets)
-            else:
-                log_p = None
-                kl = None
-                loss = None
-
-        return mu, sigma, log_p, kl, loss
+        return dist, mu, sigma, prior, posterior
 
 def uniform_attention(q, v):
     """Uniform attention. Equivalent to np.
@@ -843,14 +819,11 @@ def train_regression():
     print("num_latents: {}, latent_encoder_output_sizes: {}, deterministic_encoder_output_sizes: {}, decoder_output_sizes: {}".format(
         num_latents, latent_encoder_output_sizes, deterministic_encoder_output_sizes, decoder_output_sizes))
     decoder_input_size = 2 * HIDDEN_SIZE + X_SIZE
-    model_std = LatentModel(X_SIZE, Y_SIZE, latent_encoder_output_sizes, num_latents,
-                        decoder_output_sizes, use_deterministic_path,
-                        deterministic_encoder_output_sizes, attention, loss_type="std").to(device)
     model_wass = LatentModel(X_SIZE, Y_SIZE, latent_encoder_output_sizes, num_latents,
                         decoder_output_sizes, use_deterministic_path,
                         deterministic_encoder_output_sizes, attention, loss_type="wass").to(device)
-    models = [model_std, model_wass]
-    model_map = {0:"model_std", 1: "model_wass"}
+    models = [model_wass]
+    model_map = {0: "model_wass"}
 
     optimizers = []
     for model in models:
@@ -863,8 +836,14 @@ def train_regression():
         target_y = data_train.target_y
         for optimizer, model in zip(optimizers, models):
             optimizer.zero_grad()
-            pred_y, std_y, log_p, kl, loss_value = model(data_train.query, data_train.num_total_points,
+            dist, mu, sigma, context_points_prior, target_points_posterior = model(data_train.query, data_train.num_total_points,
                                         data_train.target_y)
+            # now we need to calculate the MC estimate of WASS distance
+            output_sample = dist.sample()
+            target_sample = target_points_posterior.sample()
+            loss_value = output_sample.mean() - target_x.mean() # this is not right
+            # pred_y, std_y, log_p, kl, loss_value = model(data_train.query, data_train.num_total_points,
+            #                             data_train.target_y)
             loss_value.backward()
             optimizer.step()
             progress.set_description('test loss: {:.3f}'.format(loss_value.item()))
@@ -881,7 +860,7 @@ def train_regression():
                                             target_y)
                     elapsed = 100 * (time.time() - start_time) / PLOT_AFTER
                     start_time = time.time()
-                    plot_functions(target_x, target_y, context_x, context_y, pred_y, std_y, outfile="{}{}{}.png".format(int(it/PLOT_AFTER),model_map[i], it))
+                    # plot_functions(target_x, target_y, context_x, context_y, pred_y, std_y, outfile="{}{}{}.png".format(int(it/PLOT_AFTER),model_map[i], it))
                 # plot_grad_flow(model.named_parameters())
 
     print("done")

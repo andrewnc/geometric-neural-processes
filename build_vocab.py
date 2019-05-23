@@ -6,7 +6,6 @@ import sys
 sys.path.append("./pycocotools")
 from coco import COCO
 
-
 class Vocabulary(object):
     """Simple vocabulary wrapper."""
     def __init__(self):

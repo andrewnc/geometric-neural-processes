@@ -92,7 +92,7 @@ if __name__ == "__main__":
     results = []
 
     input_data_paths = os.listdir("./input_graph_datasets") # this is the list of all datasets we have
-    path = "mutag.pkl"
+    path = "tox21_ahr.pkl"
     
     #filter graphs min keyword will remove graphs with fewer nodes than the value passed in. Set this value equal to m (the slice size in utils.graph_to_tensor_feature_extractor)
     train, test = utils.get_data(path="./input_graph_datasets/" +path, filter_graphs_min=10) 
@@ -114,107 +114,110 @@ if __name__ == "__main__":
 
     # subsampled_train = train[:data_amount] # subsample to compare
     
+    for eigen_feature in range(10):
+        all_metrics = []
+        for graph_m in range(1, 132):
+            for epoch in range(1, epochs+1):
+                encoder.train()
+                decoder.train()
 
-    for epoch in range(1, epochs+1):
-        encoder.train()
-        decoder.train()
+                np.random.shuffle(train) # change the order of the training data
 
-        np.random.shuffle(train) # change the order of the training data
+                progress = tqdm(enumerate(train))
 
-        progress = tqdm(enumerate(train))
+                total_loss = 0
+                total_p, total_r, total_f1, total_acc = 0,0,0,0
+                count = 0
+                for i, graph in progress:
+                    full_loss =0 
 
-        total_loss = 0
-        total_p, total_r, total_f1, total_acc = 0,0,0,0
-        count = 0
-        for i, graph in progress:
-            full_loss =0 
+                    for j in range(50):
 
-            for j in range(50):
+                        sparse_graph = utils.sparsely_observe_graph(graph, min_context_percent, max_context_percent)
 
-                sparse_graph = utils.sparsely_observe_graph(graph, min_context_percent, max_context_percent)
+                        # this acts as the feature extractor from graph to data...
+                        data = utils.graph_to_tensor_feature_extractor(sparse_graph, m=graph_m)
+                        target, graph_edge = utils.graph_to_tensor_feature_extractor(graph,m=graph_m, target=True)
 
-                # this acts as the feature extractor from graph to data...
-                data = utils.graph_to_tensor_feature_extractor(sparse_graph)
-                target, graph_edge = utils.graph_to_tensor_feature_extractor(graph, target=True)
+                        optimizer.zero_grad()
 
-                optimizer.zero_grad()
+                        data = data.to(device)
+                        target = target.to(device)
+                        graph_edge = graph_edge.to(device)
+                        
+                        # run the model to get r which will be concatenated onto every node pair in the decoder
+                        r = encoder(data)
 
-                data = data.to(device)
-                target = target.to(device)
-                graph_edge = graph_edge.to(device)
-                
-                # run the model to get r which will be concatenated onto every node pair in the decoder
-                r = encoder(data)
+                        edges = decoder(r, target) # yes, it takes in the target, but doesn't use any edge values from the target
 
-                edges = decoder(r, target) # yes, it takes in the target, but doesn't use any edge values from the target
+                        approximate_graph = utils.reconstruct_graph(edges, graph)
 
-                approximate_graph = utils.reconstruct_graph(edges, graph)
+                        loss_val = loss(edges.float(), graph_edge.long())
 
-                loss_val = loss(edges.float(), graph_edge.long())
+                        total_loss += loss_val.item()
+                        count += 1
+                        acc, out_acc = utils.get_accuracy(edges, graph_edge, as_dict=True, acc=True)
+                        total_p += acc['weighted avg']['precision'] 
+                        total_r += acc['weighted avg']['recall']
+                        total_f1 += acc['weighted avg']['f1-score']
+                        total_acc += out_acc
+                        loss_val.backward()
+                        optimizer.step()
+                    
+                    with open("encoder_graph.pkl", "wb") as of:
+                        progress.set_description('E:{} - Loss: {:.4f} P: {:.4f} R: {:.4f} F1: {:.4f} A: {:.4f}'.format(epoch, total_loss/count, total_p/count, total_r/count, total_f1/count, total_acc/count))
+                        pickle.dump(encoder, of)
 
-                total_loss += loss_val.item()
-                count += 1
-                acc, out_acc = utils.get_accuracy(edges, graph_edge, as_dict=True, acc=True)
-                total_p += acc['weighted avg']['precision'] 
-                total_r += acc['weighted avg']['recall']
-                total_f1 += acc['weighted avg']['f1-score']
-                total_acc += out_acc
-                loss_val.backward()
-                optimizer.step()
+                    with open("encoder_graph.pkl", "wb") as of:
+                        pickle.dump(decoder, of)
+
+                    with open("optim.pkl", "wb") as of:
+                        pickle.dump(optimizer, of)
+
+            encoder.eval()
+            decoder.eval()
+            with torch.no_grad():
+
+                metrics = {"precision": [],"recall": [],"f1-score":[], "accuracy": []}
+                for i, graph in enumerate(test):
+
+                    
+                    sparse_graph = utils.sparsely_observe_graph(graph, .75, .9)
+                    data = utils.graph_to_tensor_feature_extractor(sparse_graph)
+
+                    target, graph_edge = utils.graph_to_tensor_feature_extractor(graph, target=True)
+
+                    data = data.to(device)
+                    target = target.to(device)
+
+                    r = encoder(data)
+
+                    edges = decoder(r, target)
+
+                    # approximate_graph = utils.reconstruct_graph(edges, graph)
+                    classification_report, accuracy = utils.get_accuracy(edges, graph_edge, as_dict = True, acc=True)
+
+                    metrics['precision'].append(classification_report['weighted avg']['precision']) 
+                    metrics['recall'].append(classification_report['weighted avg']['recall']) 
+                    metrics['f1-score'].append(classification_report['weighted avg']['f1-score'])
+                    metrics['accuracy'].append(accuracy)
+
+
+                    # utils.draw_graph(graph, title="{}target{}.png".format(data_amount, i), save=True)
+                    # utils.draw_graph(approximate_graph, title="{}reconstruction{}.png".format(data_amount, i), save=True)
+                print("precision {}".format(np.mean(metrics["precision"])))
+                print("recall {}".format(np.mean(metrics["recall"])))
+                print("f1-score {}".format(np.mean(metrics["f1-score"])))
+                print("accuracy {}".format(np.mean(metrics["accuracy"])))
+
+
+                # ---------------- uncomment this one line below to run the baselines ------------------------ #
+                # utils.run_baselines(train, test, outfile_name="{}full_baseline".format(path))
             
-            with open("encoder_graph.pkl", "wb") as of:
-                progress.set_description('E:{} - Loss: {:.4f} P: {:.4f} R: {:.4f} F1: {:.4f} A: {:.4f}'.format(epoch, total_loss/count, total_p/count, total_r/count, total_f1/count, total_acc/count))
-                pickle.dump(encoder, of)
-
-            with open("encoder_graph.pkl", "wb") as of:
-                pickle.dump(decoder, of)
-
-            with open("optim.pkl", "wb") as of:
-                pickle.dump(optimizer, of)
-
-    encoder.eval()
-    decoder.eval()
-    with torch.no_grad():
-
-        metrics = {"precision": [],"recall": [],"f1-score":[], "accuracy": []}
-        for i, graph in enumerate(test):
-
-            
-            sparse_graph = utils.sparsely_observe_graph(graph, .75, .9)
-            data = utils.graph_to_tensor_feature_extractor(sparse_graph)
-
-            target, graph_edge = utils.graph_to_tensor_feature_extractor(graph, target=True)
-
-            data = data.to(device)
-            target = target.to(device)
-
-            r = encoder(data)
-
-            edges = decoder(r, target)
-
-            # approximate_graph = utils.reconstruct_graph(edges, graph)
-            classification_report, accuracy = utils.get_accuracy(edges, graph_edge, as_dict = True, acc=True)
-
-            metrics['precision'].append(classification_report['weighted avg']['precision']) 
-            metrics['recall'].append(classification_report['weighted avg']['recall']) 
-            metrics['f1-score'].append(classification_report['weighted avg']['f1-score'])
-            metrics['accuracy'].append(accuracy)
-
-
-            # utils.draw_graph(graph, title="{}target{}.png".format(data_amount, i), save=True)
-            # utils.draw_graph(approximate_graph, title="{}reconstruction{}.png".format(data_amount, i), save=True)
-        print("precision {}".format(np.mean(metrics["precision"])))
-        print("recall {}".format(np.mean(metrics["recall"])))
-        print("f1-score {}".format(np.mean(metrics["f1-score"])))
-        print("accuracy {}".format(np.mean(metrics["accuracy"])))
-
-
-        # ---------------- uncomment this one line below to run the baselines ------------------------ #
-        utils.run_baselines(train, test, outfile_name="{}full_baseline".format(path))
-    
-    results.append({"gnp_cr":metrics, "gnp_acc":accuracy})    
-    with open("{}results.pkl".format(path), "wb") as f:
-        pickle.dump(results, f)
-
-    # I have a seperate visualization pipeline. If we have the results, then I can do that and get pretty plots. 
+            results.append({"gnp_cr":metrics, "gnp_acc":accuracy})    
+            with open("{}results.pkl".format(path), "wb") as f:
+                pickle.dump(results, f)
+        all_metrics.append([graph_m, results])
+        with open("all_metrics.pkl", "wb") as f:
+            pickle.dump(all_metrics, f)
 

@@ -277,7 +277,7 @@ def graph_neighbor_feature_extractor(G, target=False):
     else:
         return data
 
-def graph_to_tensor_feature_extractor(G, target=False):
+def graph_to_tensor_feature_extractor(G,m=10, target=False):
     """
     parameters - 
     G (networkx.classes.graph.Graph) - graph with proper edge_value, node_value structure as defined in convert_to_network
@@ -285,8 +285,6 @@ def graph_to_tensor_feature_extractor(G, target=False):
     outputs - 
     T (torch.Tensor) - tensor of shape #unknown n_edges x [node1_val, node2_val, node1_degree, node2_degree]
     """
-
-    m = 10
     A = nx.adjacency_matrix(G).toarray()
 
 
@@ -297,6 +295,8 @@ def graph_to_tensor_feature_extractor(G, target=False):
     L = np.eye(N) - D.dot(A).dot(D) # calculate normalized graph laplacian
     val, vec = np.linalg.eig(L)
     g_nodes = list(G.nodes())
+    if m > len(g_nodes):
+        m = g_nodes
 
     data = []
     target_values = []
