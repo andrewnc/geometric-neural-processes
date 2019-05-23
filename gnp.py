@@ -131,37 +131,40 @@ if __name__ == "__main__":
                     full_loss =0 
 
                     for j in range(5):
+                        try:
+                            sparse_graph = utils.sparsely_observe_graph(graph, min_context_percent, max_context_percent)
 
-                        sparse_graph = utils.sparsely_observe_graph(graph, min_context_percent, max_context_percent)
+                            # this acts as the feature extractor from graph to data...
+                            data = utils.graph_to_tensor_feature_extractor(sparse_graph, m=graph_m)
+                            target, graph_edge = utils.graph_to_tensor_feature_extractor(graph,m=graph_m, target=True)
 
-                        # this acts as the feature extractor from graph to data...
-                        data = utils.graph_to_tensor_feature_extractor(sparse_graph, m=graph_m)
-                        target, graph_edge = utils.graph_to_tensor_feature_extractor(graph,m=graph_m, target=True)
+                            optimizer.zero_grad()
 
-                        optimizer.zero_grad()
+                            data = data.to(device)
+                            target = target.to(device)
+                            graph_edge = graph_edge.to(device)
+                            
+                            # run the model to get r which will be concatenated onto every node pair in the decoder
+                            r = encoder(data)
 
-                        data = data.to(device)
-                        target = target.to(device)
-                        graph_edge = graph_edge.to(device)
-                        
-                        # run the model to get r which will be concatenated onto every node pair in the decoder
-                        r = encoder(data)
+                            edges = decoder(r, target) # yes, it takes in the target, but doesn't use any edge values from the target
 
-                        edges = decoder(r, target) # yes, it takes in the target, but doesn't use any edge values from the target
+                            approximate_graph = utils.reconstruct_graph(edges, graph)
 
-                        approximate_graph = utils.reconstruct_graph(edges, graph)
+                            loss_val = loss(edges.float(), graph_edge.long())
 
-                        loss_val = loss(edges.float(), graph_edge.long())
-
-                        total_loss += loss_val.item()
-                        count += 1
-                        acc, out_acc = utils.get_accuracy(edges, graph_edge, as_dict=True, acc=True)
-                        total_p += acc['weighted avg']['precision'] 
-                        total_r += acc['weighted avg']['recall']
-                        total_f1 += acc['weighted avg']['f1-score']
-                        total_acc += out_acc
-                        loss_val.backward()
-                        optimizer.step()
+                            total_loss += loss_val.item()
+                            count += 1
+                            acc, out_acc = utils.get_accuracy(edges, graph_edge, as_dict=True, acc=True)
+                            total_p += acc['weighted avg']['precision'] 
+                            total_r += acc['weighted avg']['recall']
+                            total_f1 += acc['weighted avg']['f1-score']
+                            total_acc += out_acc
+                            loss_val.backward()
+                            optimizer.step()
+                        except Exception as e:
+                            print(e)
+                            continue
                     
                     with open("encoder_graph.pkl", "wb") as of:
                         progress.set_description('E:{} - Loss: {:.4f} P: {:.4f} R: {:.4f} F1: {:.4f} A: {:.4f}'.format(epoch, total_loss/count, total_p/count, total_r/count, total_f1/count, total_acc/count))
