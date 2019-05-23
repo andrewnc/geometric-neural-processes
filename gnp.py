@@ -50,9 +50,9 @@ class GraphEncoder(nn.Module):
 class NonGraphEncoder(nn.Module):
     """In this encoder we are assuming that you sparesly observe the edge values and we are trying 
     to infill these values. Also, are using the most naive value that you could imagine"""
-    def __init__(self):
+    def __init__(self, eigen_m_size=10):
         super(NonGraphEncoder, self).__init__()
-        self.fc1 = nn.Linear(24, 32)
+        self.fc1 = nn.Linear(2*eigen_m_size + 4, 32)
         self.fc2 = nn.Linear(32, 64)
         self.fc3 = nn.Linear(64, 128)
         self.fc4 = nn.Linear(128, 256)
@@ -66,9 +66,9 @@ class NonGraphEncoder(nn.Module):
 
 
 class Decoder(nn.Module):
-    def __init__(self):
+    def __init__(self, eigen_m_size=10):
         super(Decoder, self).__init__()
-        self.fc1 = nn.Linear(280, 128)
+        self.fc1 = nn.Linear(256 + 2*eigen_m_size+4, 128)
         self.fc2 = nn.Linear(128, 64)
         self.fc3 = nn.Linear(64, 32)
         self.fc4 = nn.Linear(32, 4)
@@ -104,19 +104,18 @@ if __name__ == "__main__":
 
     log_interval = 50
 
-    encoder = NonGraphEncoder().to(device)
-    # encoder = GraphEncoder().to(device)
-    decoder = Decoder().to(device)
-
-    optimizer = optim.Adam(list(encoder.parameters()) + list(decoder.parameters()))
-    # loss = nn.CrossEntropyLoss(weight=torch.tensor([1/2000, 1/1000, 1/300, 1/10]).float().to(device))
-    loss = nn.CrossEntropyLoss()
-
     # subsampled_train = train[:data_amount] # subsample to compare
     
-    for eigen_feature in range(10):
+    for repeat_for_error_bars in range(10):
         all_metrics = []
         for graph_m in range(1, 132):
+            encoder = NonGraphEncoder(graph_m).to(device)
+            decoder = Decoder(graph_m).to(device)
+
+            optimizer = optim.Adam(list(encoder.parameters()) + list(decoder.parameters()))
+            # loss = nn.CrossEntropyLoss(weight=torch.tensor([1/2000, 1/1000, 1/300, 1/10]).float().to(device))
+            loss = nn.CrossEntropyLoss()
+
             for epoch in range(1, epochs+1):
                 encoder.train()
                 decoder.train()
