@@ -95,7 +95,7 @@ if __name__ == "__main__":
     path = "tox21_ahr.pkl"
     
     #filter graphs min keyword will remove graphs with fewer nodes than the value passed in. Set this value equal to m (the slice size in utils.graph_to_tensor_feature_extractor)
-    train, test = utils.get_data(path="./input_graph_datasets/" +path, filter_graphs_min=10) 
+    train, test = utils.get_data(path="./input_graph_datasets/" +path, filter_graphs_min=50) 
 
     min_context_percent = 0.4
     max_context_percent = 0.9
@@ -108,7 +108,7 @@ if __name__ == "__main__":
     
     for repeat_for_error_bars in range(10):
         all_metrics = []
-        for graph_m in range(1, 132, 2):
+        for graph_m in range(1, 50, 2):
             encoder = NonGraphEncoder(graph_m).to(device)
             decoder = Decoder(graph_m).to(device)
 
